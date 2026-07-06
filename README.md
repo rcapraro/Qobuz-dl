@@ -51,8 +51,11 @@ cargo build --release -p qobuz-gui
 ## Packaging
 
 Install [`cargo-packager`](https://github.com/crabnebula-dev/cargo-packager) and
-run it against `qobuz-gui` to produce macOS `.dmg`/`.app`, Windows `.msi`/`.exe`,
-and Linux `.AppImage`/`.deb` bundles. See `crates/qobuz-gui/Packager.toml`.
+run `cargo packager --release` from `crates/qobuz-gui/` to produce macOS
+`.dmg`/`.app`, Windows NSIS `.exe`, and Linux `.AppImage`/`.deb` bundles. The
+packaging config lives in `[package.metadata.packager]` in
+`crates/qobuz-gui/Cargo.toml`. Releases are also built automatically by CI on a
+`v*` git tag (see `.github/workflows/release.yml`).
 
 ## Configuration
 

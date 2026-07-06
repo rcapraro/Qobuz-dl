@@ -22,11 +22,14 @@ cargo clippy --workspace           # Lint (no clippy.toml — uses defaults)
 
 No justfile/Makefile/CI. `Cargo.lock` is gitignored.
 
-Packaging (from `crates/qobuz-gui/`, config in `Packager.toml`):
+Packaging (from `crates/qobuz-gui/`, config in `[package.metadata.packager]` in
+`crates/qobuz-gui/Cargo.toml` — a standalone `Packager.toml` is NOT auto-detected
+in this workspace):
 ```bash
 cargo install cargo-packager --locked
 cargo packager --release   # dmg / nsis / deb / appimage
 ```
+CI builds releases automatically on a `v*` tag (`.github/workflows/release.yml`).
 
 ## Architecture
 

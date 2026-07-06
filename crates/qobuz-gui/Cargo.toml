@@ -17,3 +17,15 @@ rfd = "0.15"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# cargo-packager reads its config from here (the standalone Packager.toml is not
+# auto-detected in a workspace). Version/authors inherit from [package].
+[package.metadata.packager]
+product-name = "Qobuz-dl"
+identifier = "com.qobuzdl.qobuz-dl"
+description = "Download Qobuz music with quality, cover-art, and tagging control"
+category = "Music"
+formats = ["dmg", "nsis", "deb", "appimage"]
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
