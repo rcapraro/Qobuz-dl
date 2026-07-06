@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Package ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest        # Apple Silicon (aarch64)
+            format: dmg
+            artifacts: |
+              target/release/**/*.dmg
+          - os: windows-latest      # x64
+            format: nsis
+            artifacts: |
+              target/release/**/*setup.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Derive version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Sync version into Cargo.toml and Packager.toml
+        run: |
+          set -euo pipefail
+          for f in Cargo.toml crates/qobuz-gui/Packager.toml; do
+            tmp="$(mktemp)"
+            sed -E "s/^version = \".*\"/version = \"${VERSION}\"/" "$f" > "$tmp"
+            mv "$tmp" "$f"
+            echo "----- $f -----"
+            grep -n '^version = ' "$f"
+          done
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Package (${{ matrix.format }})
+        working-directory: crates/qobuz-gui
+        run: cargo packager --release --formats ${{ matrix.format }} --verbose
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ matrix.artifacts }}
+          fail_on_unmatched_files: true
