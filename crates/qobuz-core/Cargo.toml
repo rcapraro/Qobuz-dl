@@ -1,0 +1,23 @@
+[package]
+name = "qobuz-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Qobuz API client and download engine (UI-agnostic)"
+
+[dependencies]
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+futures-util.workspace = true
+md-5 = "0.10"
+lofty = "0.22"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+directories = "5"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }

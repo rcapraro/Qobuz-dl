@@ -1,0 +1,23 @@
+# cargo-packager configuration.
+#
+# Install:  cargo install cargo-packager --locked
+# Package:  cargo packager --release          (run from this crate directory)
+#
+# Produces installers/bundles for the current host platform; the `formats`
+# list below covers all three targets — build each on its native OS (or via CI).
+
+product-name = "Qobuz-dl"
+version = "0.1.0"
+identifier = "com.qobuzdl.qobuz-dl"
+description = "Download Qobuz music with quality, cover-art, and tagging control"
+authors = ["Qobuz-dl contributors"]
+category = "Music"
+
+# The binary produced by this crate ([[bin]] name = "qobuz-dl").
+binaries = [{ path = "qobuz-dl", main = true }]
+
+# macOS .dmg/.app, Windows NSIS .exe, Linux .deb and .AppImage.
+formats = ["dmg", "nsis", "deb", "appimage"]
+
+[macos]
+minimum-system-version = "11.0"
