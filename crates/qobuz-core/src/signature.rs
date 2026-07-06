@@ -80,9 +80,7 @@ mod tests {
         let sig = get_file_url_sig("123", 7, 1234567890, "secret");
         let manual = {
             let mut h = Md5::new();
-            h.update(
-                "trackgetFileUrlformat_id7intentstreamtrack_id1231234567890secret".as_bytes(),
-            );
+            h.update("trackgetFileUrlformat_id7intentstreamtrack_id1231234567890secret".as_bytes());
             hex(&h.finalize())
         };
         assert_eq!(sig, manual);

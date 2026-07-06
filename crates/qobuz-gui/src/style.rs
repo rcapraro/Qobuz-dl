@@ -69,7 +69,9 @@ pub fn mono(content: &str) -> Text<'_> {
 /// with uniform spacing and vertical centering.
 pub fn labeled_row<'a, M: 'a>(label: &'a str, control: impl Into<Element<'a, M>>) -> Row<'a, M> {
     row![
-        text(label).size(TEXT_BODY).width(Length::Fixed(LABEL_WIDTH)),
+        text(label)
+            .size(TEXT_BODY)
+            .width(Length::Fixed(LABEL_WIDTH)),
         control.into(),
     ]
     .spacing(SPACE_SM)

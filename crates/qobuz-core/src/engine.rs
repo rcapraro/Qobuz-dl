@@ -29,11 +29,27 @@ pub struct Job {
 /// Progress event for a single job, keyed by track id.
 #[derive(Debug, Clone)]
 pub enum JobEvent {
-    Started { track_id: i64, title: String },
-    Progress { track_id: i64, downloaded: u64, total: Option<u64> },
-    Tagging { track_id: i64 },
-    Done { track_id: i64, path: PathBuf, delivered: String },
-    Failed { track_id: i64, error: String },
+    Started {
+        track_id: i64,
+        title: String,
+    },
+    Progress {
+        track_id: i64,
+        downloaded: u64,
+        total: Option<u64>,
+    },
+    Tagging {
+        track_id: i64,
+    },
+    Done {
+        track_id: i64,
+        path: PathBuf,
+        delivered: String,
+    },
+    Failed {
+        track_id: i64,
+        error: String,
+    },
 }
 
 /// Resolve a [`Reference`] into concrete download jobs.

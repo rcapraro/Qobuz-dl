@@ -1,9 +1,11 @@
 //! The iced desktop application: settings, search/add, and download queue.
 
+use crate::style::{
+    self, action_button, field_input, labeled_row, secondary_button, styled_button,
+};
 use iced::futures::{future, SinkExt};
 use iced::widget::{
-    button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text,
-    Space,
+    button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, Space,
 };
 use iced::{Element, Length, Task, Theme};
 use qobuz_core::catalog::Reference;
@@ -13,7 +15,6 @@ use qobuz_core::quality::Quality;
 use qobuz_core::{auth, engine, QobuzClient};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::style::{self, action_button, field_input, labeled_row, secondary_button, styled_button};
 
 pub fn run() -> iced::Result {
     iced::application("Qobuz-dl", App::update, App::view)
@@ -444,7 +445,11 @@ impl App {
             | JobEvent::Done { track_id, .. }
             | JobEvent::Failed { track_id, .. } => *track_id,
         };
-        let Some(item) = self.index.get(&track_id).and_then(|&i| self.queue.get_mut(i)) else {
+        let Some(item) = self
+            .index
+            .get(&track_id)
+            .and_then(|&i| self.queue.get_mut(i))
+        else {
             return;
         };
         match ev {
@@ -469,7 +474,11 @@ impl App {
             nav_button("Queue", Screen::Queue, self.screen),
             Space::with_width(Length::Fill),
             secondary_button(
-                if self.dark_mode { "☀  Light" } else { "🌙  Dark" },
+                if self.dark_mode {
+                    "☀  Light"
+                } else {
+                    "🌙  Dark"
+                },
                 Message::ToggleTheme,
             ),
             text(if self.signed_in {
@@ -646,10 +655,13 @@ impl App {
         .align_y(iced::Alignment::Center);
 
         let url_bar = row![
-            field_input("paste a Qobuz URL or ID (album / track / playlist)", &self.url_input)
-                .on_input(Message::UrlChanged)
-                .on_submit(Message::AddUrl)
-                .width(Length::Fill),
+            field_input(
+                "paste a Qobuz URL or ID (album / track / playlist)",
+                &self.url_input
+            )
+            .on_input(Message::UrlChanged)
+            .on_submit(Message::AddUrl)
+            .width(Length::Fill),
             action_button("Add", Message::AddUrl),
         ]
         .spacing(style::SPACE_SM)
@@ -687,13 +699,13 @@ impl App {
     }
 
     fn queue_view(&self) -> Element<'_, Message> {
-        let (done, total_bytes, got_bytes) = self.queue.iter().fold(
-            (0usize, 0u64, 0u64),
-            |(d, tb, gb), it| {
-                let d = d + matches!(it.status, ItemStatus::Done(_)) as usize;
-                (d, tb + it.total.unwrap_or(0), gb + it.downloaded)
-            },
-        );
+        let (done, total_bytes, got_bytes) =
+            self.queue
+                .iter()
+                .fold((0usize, 0u64, 0u64), |(d, tb, gb), it| {
+                    let d = d + matches!(it.status, ItemStatus::Done(_)) as usize;
+                    (d, tb + it.total.unwrap_or(0), gb + it.downloaded)
+                });
         let overall = if total_bytes > 0 {
             got_bytes as f32 / total_bytes as f32
         } else if self.queue.is_empty() {
@@ -721,7 +733,8 @@ impl App {
 
         column![
             header,
-            progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0)).height(Length::Fixed(style::PROGRESS_HEIGHT)),
+            progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
+                .height(Length::Fixed(style::PROGRESS_HEIGHT)),
             scrollable(list).height(Length::Fill),
         ]
         .spacing(style::SPACE_MD)
@@ -797,7 +810,8 @@ fn template_help() -> Element<'static, Message> {
 
     let rules = column![
         text("Syntax").size(style::TEXT_BODY),
-        text("• Use {placeholder} tokens; unknown tokens render as empty text.").size(style::TEXT_SM),
+        text("• Use {placeholder} tokens; unknown tokens render as empty text.")
+            .size(style::TEXT_SM),
         text("• Zero-pad numbers with {name:0N}, e.g. {tracknumber:02} → 01.").size(style::TEXT_SM),
         text("• In the folder format, \"/\" creates nested subfolders.").size(style::TEXT_SM),
         text("• Illegal filename characters are replaced automatically.").size(style::TEXT_SM),
@@ -813,15 +827,9 @@ fn template_help() -> Element<'static, Message> {
         track_ex = track_ex.push(example_row(t, Message::TrackFormatChanged(t.to_string())));
     }
 
-    column![
-        section("Placeholders"),
-        list,
-        rules,
-        folder_ex,
-        track_ex,
-    ]
-    .spacing(style::SPACE_SM)
-    .into()
+    column![section("Placeholders"), list, rules, folder_ex, track_ex,]
+        .spacing(style::SPACE_SM)
+        .into()
 }
 
 fn result_row<'a>(label: &'a str, reference: Reference) -> Element<'a, Message> {
@@ -855,7 +863,8 @@ fn queue_row(it: &QueueItem) -> Element<'_, Message> {
             text(status_text).size(style::TEXT_SM),
         ]
         .spacing(style::SPACE_SM),
-        progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0)).height(Length::Fixed(style::PROGRESS_HEIGHT)),
+        progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
+            .height(Length::Fixed(style::PROGRESS_HEIGHT)),
     ]
     .spacing(style::SPACE_XS)
     .into()
@@ -880,13 +889,11 @@ async fn login_password(
     c.login(&email, &password).await.map_err(|e| e.to_string())
 }
 
-async fn login_token(
-    app_id: String,
-    app_secret: String,
-    token: String,
-) -> Result<String, String> {
+async fn login_token(app_id: String, app_secret: String, token: String) -> Result<String, String> {
     let mut c = QobuzClient::new(app_id, app_secret).map_err(|e| e.to_string())?;
-    c.login_with_token(&token).await.map_err(|e| e.to_string())?;
+    c.login_with_token(&token)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(token)
 }
 

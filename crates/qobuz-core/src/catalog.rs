@@ -150,7 +150,10 @@ mod tests {
 
     #[test]
     fn empty_input_rejected() {
-        assert!(matches!(parse_input("   "), Err(Error::UnrecognizedInput(_))));
+        assert!(matches!(
+            parse_input("   "),
+            Err(Error::UnrecognizedInput(_))
+        ));
     }
 
     #[test]

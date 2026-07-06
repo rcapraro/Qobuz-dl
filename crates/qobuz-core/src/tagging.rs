@@ -101,7 +101,10 @@ mod tests {
 
     #[test]
     fn mime_sniff() {
-        assert!(matches!(sniff_mime(&[0x89, b'P', b'N', b'G', 0]), MimeType::Png));
+        assert!(matches!(
+            sniff_mime(&[0x89, b'P', b'N', b'G', 0]),
+            MimeType::Png
+        ));
         assert!(matches!(sniff_mime(&[0xFF, 0xD8, 0xFF]), MimeType::Jpeg));
     }
 }

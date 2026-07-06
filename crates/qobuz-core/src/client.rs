@@ -53,7 +53,8 @@ impl QobuzClient {
         let mut h = HeaderMap::new();
         h.insert(
             HeaderName::from_static("x-app-id"),
-            HeaderValue::from_str(&self.app_id).map_err(|_| Error::Auth("invalid app_id".into()))?,
+            HeaderValue::from_str(&self.app_id)
+                .map_err(|_| Error::Auth("invalid app_id".into()))?,
         );
         if let Some(t) = &self.token {
             h.insert(
@@ -117,7 +118,13 @@ impl QobuzClient {
             }
             Err(e) => return Err(e),
         };
-        if resp.user.credential.as_ref().and_then(|c| c.parameters.as_ref()).is_none() {
+        if resp
+            .user
+            .credential
+            .as_ref()
+            .and_then(|c| c.parameters.as_ref())
+            .is_none()
+        {
             return Err(Error::IneligibleAccount);
         }
         if let Some(id) = resp.user.id {
@@ -172,11 +179,7 @@ impl QobuzClient {
             )
             .await?;
 
-        let total = playlist
-            .tracks
-            .as_ref()
-            .and_then(|t| t.total)
-            .unwrap_or(0);
+        let total = playlist.tracks.as_ref().and_then(|t| t.total).unwrap_or(0);
         let mut offset = playlist
             .tracks
             .as_ref()
@@ -225,10 +228,7 @@ impl QobuzClient {
     pub async fn search(&self, query: &str, limit: u32) -> Result<SearchResults> {
         self.get(
             "catalog/search",
-            &[
-                ("query", query.to_string()),
-                ("limit", limit.to_string()),
-            ],
+            &[("query", query.to_string()), ("limit", limit.to_string())],
         )
         .await
     }
