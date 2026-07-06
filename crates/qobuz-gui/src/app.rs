@@ -3,7 +3,7 @@
 use iced::futures::{future, SinkExt};
 use iced::widget::{
     button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text,
-    text_input, Space,
+    Space,
 };
 use iced::{Element, Length, Task, Theme};
 use qobuz_core::catalog::Reference;
@@ -13,10 +13,11 @@ use qobuz_core::quality::Quality;
 use qobuz_core::{auth, engine, QobuzClient};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use crate::style::{self, action_button, field_input, labeled_row, secondary_button, styled_button};
 
 pub fn run() -> iced::Result {
     iced::application("Qobuz-dl", App::update, App::view)
-        .theme(|_| Theme::Dark)
+        .theme(App::theme)
         .run_with(App::new)
 }
 
@@ -76,11 +77,18 @@ pub struct App {
     queue: Vec<QueueItem>,
     index: HashMap<i64, usize>,
     downloading: bool,
+
+    // UI preferences.
+    dark_mode: bool,
+    show_template_help: bool,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     Navigate(Screen),
+    ToggleTheme,
+    ToggleTemplateHelp,
+    CopyTemplate(String),
 
     // Settings inputs.
     EmailChanged(String),
@@ -131,6 +139,8 @@ impl App {
         let app = App {
             screen: Screen::Settings,
             concurrency: config.concurrency.to_string(),
+            dark_mode: config.dark_mode,
+            show_template_help: false,
             email: String::new(),
             password: String::new(),
             token_input: String::new(),
@@ -158,12 +168,27 @@ impl App {
         Ok(c)
     }
 
+    fn theme(&self) -> Theme {
+        style::theme(self.dark_mode)
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Navigate(s) => {
                 self.screen = s;
                 Task::none()
             }
+            Message::ToggleTheme => {
+                self.dark_mode = !self.dark_mode;
+                self.config.dark_mode = self.dark_mode;
+                let _ = self.config.save();
+                Task::none()
+            }
+            Message::ToggleTemplateHelp => {
+                self.show_template_help = !self.show_template_help;
+                Task::none()
+            }
+            Message::CopyTemplate(t) => iced::clipboard::write(t),
 
             // ---- Settings inputs ----
             Message::EmailChanged(v) => {
@@ -443,13 +468,17 @@ impl App {
             nav_button("Search / Add", Screen::Search, self.screen),
             nav_button("Queue", Screen::Queue, self.screen),
             Space::with_width(Length::Fill),
+            secondary_button(
+                if self.dark_mode { "☀  Light" } else { "🌙  Dark" },
+                Message::ToggleTheme,
+            ),
             text(if self.signed_in {
                 "● signed in"
             } else {
                 "○ signed out"
             }),
         ]
-        .spacing(8)
+        .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
 
         let body = match self.screen {
@@ -460,11 +489,11 @@ impl App {
 
         let content = column![
             nav,
-            container(text(&self.status)).padding([4, 0]),
+            container(text(&self.status)).padding([style::SPACE_XS, 0]),
             container(body).height(Length::Fill),
         ]
-        .spacing(10)
-        .padding(16);
+        .spacing(style::SPACE_MD)
+        .padding(style::SPACE_XL);
 
         content.into()
     }
@@ -473,49 +502,54 @@ impl App {
         let auth_section = column![
             section("Account"),
             row![
-                text_input("email", &self.email)
+                field_input("email", &self.email)
                     .on_input(Message::EmailChanged)
-                    .width(Length::FillPortion(2)),
-                text_input("password", &self.password)
+                    .width(Length::FillPortion(1)),
+                field_input("password", &self.password)
                     .secure(true)
                     .on_input(Message::PasswordChanged)
-                    .width(Length::FillPortion(2)),
-                button("Sign in").on_press(Message::LoginPassword),
+                    .width(Length::FillPortion(1)),
+                action_button("Sign in", Message::LoginPassword),
             ]
-            .spacing(8),
+            .spacing(style::SPACE_SM)
+            .align_y(iced::Alignment::Center),
             row![
-                text_input("or paste a user_auth_token", &self.token_input)
+                field_input("or paste a user_auth_token", &self.token_input)
                     .on_input(Message::TokenChanged)
                     .width(Length::Fill),
-                button("Use token").on_press(Message::LoginToken),
-                button("Sign out").on_press(Message::SignOut),
+                action_button("Use token", Message::LoginToken),
+                secondary_button("Sign out", Message::SignOut),
             ]
-            .spacing(8),
+            .spacing(style::SPACE_SM)
+            .align_y(iced::Alignment::Center),
         ]
-        .spacing(8);
+        .spacing(style::SPACE_SM);
 
         let creds_section = column![
             section("API credentials"),
             row![
-                text_input("app_id", &self.config.app_id)
+                field_input("app_id", &self.config.app_id)
                     .on_input(Message::AppIdChanged)
-                    .width(Length::Fill),
-                text_input("app_secret", &self.config.app_secret)
+                    .width(Length::FillPortion(1)),
+                field_input("app_secret", &self.config.app_secret)
                     .secure(true)
                     .on_input(Message::AppSecretChanged)
-                    .width(Length::Fill),
+                    .width(Length::FillPortion(1)),
             ]
-            .spacing(8),
+            .spacing(style::SPACE_SM)
+            .align_y(iced::Alignment::Center),
         ]
-        .spacing(8);
+        .spacing(style::SPACE_SM);
 
-        let dir_row = row![
-            text("Download to:"),
-            text(self.config.download_dir.display().to_string()).width(Length::Fill),
-            button("Choose…").on_press(Message::PickDir),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center);
+        let dir_row = labeled_row(
+            "Download to:",
+            row![
+                text(self.config.download_dir.display().to_string()).width(Length::Fill),
+                secondary_button("Choose…", Message::PickDir),
+            ]
+            .spacing(style::SPACE_SM)
+            .align_y(iced::Alignment::Center),
+        );
 
         let options_row = row![
             text("Quality:"),
@@ -524,29 +558,44 @@ impl App {
                 Some(self.config.quality),
                 Message::QualitySelected,
             ),
-            Space::with_width(16),
-            checkbox("Embed cover art", self.config.embed_art)
-                .on_toggle(Message::EmbedArtToggled),
-            Space::with_width(16),
+            checkbox("Embed cover art", self.config.embed_art).on_toggle(Message::EmbedArtToggled),
             text("Concurrency:"),
-            text_input("3", &self.concurrency)
+            field_input("3", &self.concurrency)
                 .on_input(Message::ConcurrencyChanged)
                 .width(Length::Fixed(60.0)),
         ]
-        .spacing(8)
+        .spacing(style::SPACE_MD)
         .align_y(iced::Alignment::Center);
 
         let preview = self.template_preview();
-        let templates_section = column![
+        let help_toggle = secondary_button(
+            if self.show_template_help {
+                "Hide template help"
+            } else {
+                "Show template help"
+            },
+            Message::ToggleTemplateHelp,
+        );
+        let mut templates_section = column![
             section("File organization"),
             dir_row,
-            text_input("folder format", &self.config.folder_format)
-                .on_input(Message::FolderFormatChanged),
-            text_input("track format", &self.config.track_format)
-                .on_input(Message::TrackFormatChanged),
-            container(text(preview).size(13)).padding([4, 0]),
+            labeled_row(
+                "Folder:",
+                field_input("folder format", &self.config.folder_format)
+                    .on_input(Message::FolderFormatChanged),
+            ),
+            labeled_row(
+                "Track:",
+                field_input("track format", &self.config.track_format)
+                    .on_input(Message::TrackFormatChanged),
+            ),
+            container(text(preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
+            help_toggle,
         ]
-        .spacing(8);
+        .spacing(style::SPACE_SM);
+        if self.show_template_help {
+            templates_section = templates_section.push(template_help());
+        }
 
         scrollable(
             column![
@@ -554,9 +603,9 @@ impl App {
                 auth_section,
                 templates_section,
                 options_row,
-                button("Save settings").on_press(Message::SaveSettings),
+                action_button("Save settings", Message::SaveSettings),
             ]
-            .spacing(18),
+            .spacing(style::SPACE_LG),
         )
         .into()
     }
@@ -587,24 +636,26 @@ impl App {
 
     fn search_view(&self) -> Element<'_, Message> {
         let search_bar = row![
-            text_input("search albums, tracks, artists…", &self.search_query)
+            field_input("search albums, tracks, artists…", &self.search_query)
                 .on_input(Message::SearchQueryChanged)
                 .on_submit(Message::SearchSubmit)
                 .width(Length::Fill),
-            button("Search").on_press(Message::SearchSubmit),
+            action_button("Search", Message::SearchSubmit),
         ]
-        .spacing(8);
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center);
 
         let url_bar = row![
-            text_input("paste a Qobuz URL or ID (album / track / playlist)", &self.url_input)
+            field_input("paste a Qobuz URL or ID (album / track / playlist)", &self.url_input)
                 .on_input(Message::UrlChanged)
                 .on_submit(Message::AddUrl)
                 .width(Length::Fill),
-            button("Add").on_press(Message::AddUrl),
+            action_button("Add", Message::AddUrl),
         ]
-        .spacing(8);
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center);
 
-        let mut results = column![].spacing(6);
+        let mut results = column![].spacing(style::SPACE_SM);
         if !self.results.albums.is_empty() {
             results = results.push(section("Albums"));
             for (id, label) in &self.results.albums {
@@ -631,7 +682,7 @@ impl App {
             url_bar,
             scrollable(results).height(Length::Fill),
         ]
-        .spacing(12)
+        .spacing(style::SPACE_MD)
         .into()
     }
 
@@ -653,27 +704,27 @@ impl App {
 
         let header = row![
             text(format!("{done}/{} complete", self.queue.len())).width(Length::Fill),
-            button(if self.downloading {
+            styled_button(if self.downloading {
                 "Downloading…"
             } else {
                 "Start downloads"
             })
             .on_press_maybe((!self.downloading).then_some(Message::StartDownloads)),
         ]
-        .spacing(8)
+        .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
 
-        let mut list = column![].spacing(8);
+        let mut list = column![].spacing(style::SPACE_SM);
         for it in &self.queue {
             list = list.push(queue_row(it));
         }
 
         column![
             header,
-            progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0)),
+            progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0)).height(Length::Fixed(style::PROGRESS_HEIGHT)),
             scrollable(list).height(Length::Fill),
         ]
-        .spacing(12)
+        .spacing(style::SPACE_MD)
         .into()
     }
 }
@@ -688,15 +739,97 @@ fn nav_button(label: &str, target: Screen, current: Screen) -> Element<'_, Messa
 }
 
 fn section(title: &str) -> Element<'_, Message> {
-    text(title).size(18).into()
+    text(title).size(style::TEXT_SECTION).into()
+}
+
+/// Example folder templates offered in the help panel (using real placeholders).
+const FOLDER_EXAMPLES: &[&str] = &[
+    "{albumartist}/{album} ({year})",
+    "{albumartist} - {album} [{container}]",
+    "{albumartist}/{album} ({year}) [{bit_depth}B-{sampling_rate}kHz]",
+];
+
+/// Example track templates offered in the help panel (using real placeholders).
+const TRACK_EXAMPLES: &[&str] = &[
+    "{tracknumber:02} - {title}",
+    "{tracknumber:02}. {artist} - {title}",
+    "{artist} - {title}{explicit}",
+];
+
+/// One example row: the template string plus Copy and Apply actions.
+fn example_row<'a>(template: &'a str, apply: Message) -> Element<'a, Message> {
+    row![
+        style::mono(template).width(Length::Fill),
+        secondary_button("Copy", Message::CopyTemplate(template.to_string())),
+        secondary_button("Apply", apply),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// The template-syntax help panel: placeholders, rules, and copyable examples.
+fn template_help() -> Element<'static, Message> {
+    let placeholders = [
+        ("{albumartist}", "Album's primary artist"),
+        ("{artist}", "Track artist"),
+        ("{album}", "Album title"),
+        ("{title}", "Track title"),
+        ("{year}", "Release year"),
+        ("{container}", "Format/extension, e.g. FLAC"),
+        ("{bit_depth}", "Bit depth, e.g. 24"),
+        ("{sampling_rate}", "Sample rate in kHz, e.g. 96"),
+        ("{explicit}", "\" [E]\" for explicit tracks, else empty"),
+        ("{composer}", "Composer, when available"),
+        ("{tracknumber}", "Track number; pad with {tracknumber:02}"),
+    ];
+    let mut list = column![].spacing(style::SPACE_XS);
+    for (token, desc) in placeholders {
+        list = list.push(
+            row![
+                style::mono(token).width(Length::Fixed(style::LABEL_WIDTH + 40.0)),
+                text(desc).size(style::TEXT_SM),
+            ]
+            .spacing(style::SPACE_SM)
+            .align_y(iced::Alignment::Center),
+        );
+    }
+
+    let rules = column![
+        text("Syntax").size(style::TEXT_BODY),
+        text("• Use {placeholder} tokens; unknown tokens render as empty text.").size(style::TEXT_SM),
+        text("• Zero-pad numbers with {name:0N}, e.g. {tracknumber:02} → 01.").size(style::TEXT_SM),
+        text("• In the folder format, \"/\" creates nested subfolders.").size(style::TEXT_SM),
+        text("• Illegal filename characters are replaced automatically.").size(style::TEXT_SM),
+    ]
+    .spacing(style::SPACE_XS);
+
+    let mut folder_ex = column![section("Folder examples")].spacing(style::SPACE_XS);
+    for &t in FOLDER_EXAMPLES {
+        folder_ex = folder_ex.push(example_row(t, Message::FolderFormatChanged(t.to_string())));
+    }
+    let mut track_ex = column![section("Track examples")].spacing(style::SPACE_XS);
+    for &t in TRACK_EXAMPLES {
+        track_ex = track_ex.push(example_row(t, Message::TrackFormatChanged(t.to_string())));
+    }
+
+    column![
+        section("Placeholders"),
+        list,
+        rules,
+        folder_ex,
+        track_ex,
+    ]
+    .spacing(style::SPACE_SM)
+    .into()
 }
 
 fn result_row<'a>(label: &'a str, reference: Reference) -> Element<'a, Message> {
     row![
         text(label).width(Length::Fill),
-        button("Add").on_press(Message::Add(reference)),
+        secondary_button("Add", Message::Add(reference)),
     ]
-    .spacing(8)
+    .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center)
     .into()
 }
@@ -719,12 +852,12 @@ fn queue_row(it: &QueueItem) -> Element<'_, Message> {
     column![
         row![
             text(&it.title).width(Length::Fill),
-            text(status_text),
+            text(status_text).size(style::TEXT_SM),
         ]
-        .spacing(8),
-        progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0)).height(Length::Fixed(8.0)),
+        .spacing(style::SPACE_SM),
+        progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0)).height(Length::Fixed(style::PROGRESS_HEIGHT)),
     ]
-    .spacing(4)
+    .spacing(style::SPACE_XS)
     .into()
 }
 

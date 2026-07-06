@@ -34,6 +34,8 @@ pub struct Config {
     pub app_secret: String,
     /// Cached user id for the raw-token auth path.
     pub user_id: String,
+    /// Whether the GUI uses the dark theme (true) or the light theme (false).
+    pub dark_mode: bool,
 }
 
 impl Default for Config {
@@ -48,6 +50,7 @@ impl Default for Config {
             app_id: String::new(),
             app_secret: String::new(),
             user_id: String::new(),
+            dark_mode: true,
         }
     }
 }
@@ -105,6 +108,7 @@ mod tests {
     fn defaults_are_sane() {
         let c = Config::default();
         assert!(c.embed_art);
+        assert!(c.dark_mode);
         assert_eq!(c.concurrency, 3);
         assert_eq!(c.quality, Quality::Flac24);
         assert!(c.folder_format.contains("{albumartist}"));
@@ -128,5 +132,14 @@ mod tests {
         let json = serde_json::to_string(&c).unwrap();
         let back: Config = serde_json::from_str(&json).unwrap();
         assert_eq!(back.app_id, "123");
+    }
+
+    #[test]
+    fn loads_config_without_dark_mode_field() {
+        // Older config files predate `dark_mode`; #[serde(default)] must fill it.
+        let json = r#"{"app_id": "abc"}"#;
+        let c: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(c.app_id, "abc");
+        assert!(c.dark_mode);
     }
 }
