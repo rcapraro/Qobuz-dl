@@ -31,6 +31,6 @@
 ## 6. Verification
 
 - [x] 6.1 Lint the workflow YAML locally (e.g. `actionlint` if available) or validate structure; ensure both files parse
-- [ ] 6.2 Push a branch/PR and confirm `ci.yml` runs fmt + macOS/Windows clippy/build/test and reports status *(requires GitHub push)*
-- [ ] 6.3 Push a test tag (e.g. `v0.1.0`) and confirm `release.yml` builds both platforms, produces the `.dmg` + NSIS `.exe`, and publishes a GitHub Release with both assets attached *(requires GitHub push)*
-- [ ] 6.4 Download and sanity-check each installer runs on its platform (macOS Apple Silicon `.dmg`, Windows x64 `.exe`) *(requires GitHub push)*
+- [x] 6.2 Push a branch/PR and confirm `ci.yml` runs fmt + macOS/Windows clippy/build/test and reports status — verified green on push to main
+- [x] 6.3 Push a test tag (e.g. `v0.1.0`) and confirm `release.yml` builds both platforms, produces the `.dmg` + NSIS `.exe`, and publishes a GitHub Release with both assets attached — verified: run 28824067077 published Qobuz-dl_0.1.0_aarch64.dmg + qobuz-dl_0.1.0_x64-setup.exe
+- [ ] 6.4 Download and sanity-check each installer runs on its platform (macOS Apple Silicon `.dmg`, Windows x64 `.exe`) *(manual human check)*
