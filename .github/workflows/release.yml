@@ -48,6 +48,11 @@ jobs:
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
 
+      - name: Build release binary
+        # cargo-packager bundles an already-built binary from target/release;
+        # it does not compile the app itself, so build it first.
+        run: cargo build --release -p qobuz-gui
+
       - name: Package (${{ matrix.format }})
         working-directory: crates/qobuz-gui
         run: cargo packager --release --formats ${{ matrix.format }} --verbose
