@@ -1158,11 +1158,15 @@ fn queue_row(it: &QueueItem) -> Element<'_, Message> {
     column![
         row![text(&it.title).width(Length::Fill), {
             let pick = badge_palette(&it.status);
-            Badge::new(text(status_text).size(style::TEXT_SM)).style(move |theme, _status| {
-                let a = style::accents(theme);
-                let (bg, fg) = pick(&a);
-                style::badge(bg, fg)
-            })
+            // Monospace so the padded percentage keeps a constant width (the
+            // default font's digits vary in width and shift the badge).
+            Badge::new(text(status_text).size(style::TEXT_SM).font(Font::MONOSPACE)).style(
+                move |theme, _status| {
+                    let a = style::accents(theme);
+                    let (bg, fg) = pick(&a);
+                    style::badge(bg, fg)
+                },
+            )
         },]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center),
