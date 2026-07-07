@@ -17,9 +17,9 @@ futures-util.workspace = true
 md-5 = "0.10"
 regex = "1"
 base64 = "0.22"
-lofty = "0.22"
+lofty = "0.24"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-directories = "5"
+directories = "6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

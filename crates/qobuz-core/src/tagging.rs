@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::models::{Album, Track};
 use lofty::config::WriteOptions;
 use lofty::picture::{MimeType, Picture, PictureType};
+use lofty::tag::items::Timestamp;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
 use std::path::Path;
 
@@ -43,8 +44,11 @@ pub fn write_tags(path: &Path, tags: &TrackTags<'_>) -> Result<()> {
     let disc = tags.track.disc_number();
     tag.set_disk(disc);
 
-    if let Some(year) = tags.album.year().and_then(|y| y.parse::<u32>().ok()) {
-        tag.set_year(year);
+    if let Some(year) = tags.album.year().and_then(|y| y.parse::<u16>().ok()) {
+        tag.set_date(Timestamp {
+            year,
+            ..Timestamp::default()
+        });
     }
     if let Some(g) = tags.album.genre.as_ref().and_then(|g| g.name.clone()) {
         tag.set_genre(g);
@@ -71,12 +75,12 @@ pub fn write_tags(path: &Path, tags: &TrackTags<'_>) -> Result<()> {
 
 fn build_picture(bytes: &[u8]) -> Option<Picture> {
     let mime = sniff_mime(bytes);
-    Some(Picture::new_unchecked(
-        PictureType::CoverFront,
-        Some(mime),
-        None,
-        bytes.to_vec(),
-    ))
+    Some(
+        Picture::unchecked(bytes.to_vec())
+            .pic_type(PictureType::CoverFront)
+            .mime_type(mime)
+            .build(),
+    )
 }
 
 fn sniff_mime(bytes: &[u8]) -> MimeType {

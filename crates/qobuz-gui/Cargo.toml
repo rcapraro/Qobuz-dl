@@ -19,7 +19,7 @@ iced_aw = { version = "0.12", default-features = false, features = [
     "card",
     "badge",
 ] }
-rfd = "0.15"
+rfd = "0.17"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
