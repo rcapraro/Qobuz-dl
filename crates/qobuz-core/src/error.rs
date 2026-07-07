@@ -21,6 +21,9 @@ pub enum Error {
     #[error("app credentials missing: {0}")]
     MissingAppCredentials(&'static str),
 
+    #[error("could not auto-detect credentials: {0}")]
+    CredentialDiscovery(String),
+
     #[error("rate limited by the Qobuz API")]
     RateLimited,
 

@@ -6,6 +6,7 @@ use crate::quality::Quality;
 use crate::signature;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::de::DeserializeOwned;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const API_BASE: &str = "https://www.qobuz.com/api.json/0.2/";
@@ -16,14 +17,18 @@ const PAGE_SIZE: u32 = 500;
 pub struct QobuzClient {
     http: reqwest::Client,
     app_id: String,
-    app_secret: String,
+    /// Candidate app secrets to try when signing, in priority order. Auto-detection
+    /// yields several (one per timezone seed); only one is actually valid.
+    app_secrets: Vec<String>,
+    /// Index of the last secret that signed successfully, cached so repeated
+    /// signed calls in a session skip the known-bad candidates.
+    working_secret: Arc<Mutex<Option<usize>>>,
     token: Option<String>,
 }
 
 impl QobuzClient {
     pub fn new(app_id: impl Into<String>, app_secret: impl Into<String>) -> Result<Self> {
         let app_id = app_id.into();
-        let app_secret = app_secret.into();
         if app_id.trim().is_empty() {
             return Err(Error::MissingAppCredentials("app_id"));
         }
@@ -31,12 +36,29 @@ impl QobuzClient {
             .user_agent("qobuz-dl/0.1 (+https://github.com/)")
             .timeout(Duration::from_secs(30))
             .build()?;
+        let mut app_secrets = Vec::new();
+        let secret = app_secret.into();
+        if !secret.trim().is_empty() {
+            app_secrets.push(secret);
+        }
         Ok(Self {
             http,
             app_id,
-            app_secret,
+            app_secrets,
+            working_secret: Arc::new(Mutex::new(None)),
             token: None,
         })
+    }
+
+    /// Add extra candidate app secrets (e.g. from auto-detection) to try when
+    /// signing. Empty and duplicate values are ignored.
+    pub fn with_secret_candidates(mut self, secrets: impl IntoIterator<Item = String>) -> Self {
+        for s in secrets {
+            if !s.trim().is_empty() && !self.app_secrets.contains(&s) {
+                self.app_secrets.push(s);
+            }
+        }
+        self
     }
 
     /// Attach an existing auth token (raw-token path or restored from keyring).
@@ -91,12 +113,21 @@ impl QobuzClient {
         let text = resp.text().await?;
         if !status.is_success() {
             // Try to surface a useful message; detect signature failures.
-            if text.contains("invalid") && text.to_lowercase().contains("signature") {
+            if is_signature_error(&text) {
                 return Err(Error::InvalidSignature);
             }
+            // Prefer the API's `message` field over the raw JSON body.
+            let message = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| {
+                    v.get("message")
+                        .and_then(|m| m.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_else(|| truncate(&text, 300));
             return Err(Error::Http {
                 status: status.as_u16(),
-                message: truncate(&text, 300),
+                message,
             });
         }
         Ok(serde_json::from_str(&text)?)
@@ -104,37 +135,9 @@ impl QobuzClient {
 
     // ---- Authentication -------------------------------------------------
 
-    /// Log in with email + password, returning the `user_auth_token`.
-    /// Rejects free/ineligible accounts.
-    pub async fn login(&mut self, email: &str, password: &str) -> Result<String> {
-        let params = [
-            ("email", email.to_string()),
-            ("password", password.to_string()),
-        ];
-        let resp: LoginResponse = match self.get("user/login", &params).await {
-            Ok(r) => r,
-            Err(Error::Http { status: 401, .. }) => {
-                return Err(Error::Auth("invalid email or password".into()))
-            }
-            Err(e) => return Err(e),
-        };
-        if resp
-            .user
-            .credential
-            .as_ref()
-            .and_then(|c| c.parameters.as_ref())
-            .is_none()
-        {
-            return Err(Error::IneligibleAccount);
-        }
-        if let Some(id) = resp.user.id {
-            self.token = Some(resp.user_auth_token.clone());
-            let _ = id;
-        } else {
-            self.token = Some(resp.user_auth_token.clone());
-        }
-        Ok(resp.user_auth_token)
-    }
+    // Email/password login is intentionally not supported: Qobuz's `user/login`
+    // rejects it for partner/bundled accounts (e.g. Qobuz via a telco), which
+    // have no Qobuz-native password. Authentication is via `user_auth_token`.
 
     /// Validate a raw token by fetching the user's profile. On success the token
     /// is retained for subsequent calls.
@@ -239,31 +242,57 @@ impl QobuzClient {
     /// quality. The response reports the *actually delivered* quality, which may
     /// be lower (graceful downgrade).
     pub async fn file_url(&self, track_id: &str, quality: Quality) -> Result<FileUrl> {
-        if self.app_secret.trim().is_empty() {
+        if self.app_secrets.is_empty() {
             return Err(Error::MissingAppCredentials("app_secret"));
         }
         let format_id = quality.format_id();
-        let ts = now_unix();
-        let sig = signature::get_file_url_sig(track_id, format_id, ts, &self.app_secret);
 
-        let params = [
-            ("track_id", track_id.to_string()),
-            ("format_id", format_id.to_string()),
-            ("intent", "stream".to_string()),
-            ("request_ts", ts.to_string()),
-            ("request_sig", sig),
-        ];
-        let file: FileUrl = self.get("track/getFileUrl", &params).await?;
-        if file.url.is_none() {
-            return Err(Error::NoFileUrl);
+        // Try candidates starting from the last-known-good one, wrapping around.
+        // A rejected signature just means "wrong secret" — move to the next; any
+        // other error is fatal and propagated immediately.
+        let n = self.app_secrets.len();
+        let start = self.working_secret.lock().unwrap().unwrap_or(0) % n;
+        for k in 0..n {
+            let idx = (start + k) % n;
+            let ts = now_unix();
+            let sig = signature::get_file_url_sig(track_id, format_id, ts, &self.app_secrets[idx]);
+            let params = [
+                ("track_id", track_id.to_string()),
+                ("format_id", format_id.to_string()),
+                ("intent", "stream".to_string()),
+                ("request_ts", ts.to_string()),
+                ("request_sig", sig),
+            ];
+            match self.get::<FileUrl>("track/getFileUrl", &params).await {
+                Ok(file) => {
+                    if file.url.is_none() {
+                        return Err(Error::NoFileUrl);
+                    }
+                    *self.working_secret.lock().unwrap() = Some(idx);
+                    return Ok(file);
+                }
+                // Wrong secret — try the next candidate.
+                Err(Error::InvalidSignature) => continue,
+                Err(e) => return Err(e),
+            }
         }
-        Ok(file)
+        // Every candidate's signature was rejected.
+        Err(Error::InvalidSignature)
     }
 
     /// Shared HTTP client (for streaming downloads of already-signed URLs).
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }
+}
+
+/// Whether an error body reports a rejected request signature. Matches
+/// case-insensitively — the API returns "Invalid Request Signature parameter
+/// (request_sig)" (capital I) — so this must not be a case-sensitive check, or
+/// `file_url`'s candidate-secret retry never triggers.
+fn is_signature_error(body: &str) -> bool {
+    let lower = body.to_lowercase();
+    lower.contains("signature") && (lower.contains("invalid") || lower.contains("request_sig"))
 }
 
 fn now_unix() -> u64 {
@@ -278,5 +307,31 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_signature_error_case_insensitively() {
+        // The live API returns a capital "I" — the classifier must still match,
+        // otherwise file_url's candidate-secret retry never triggers.
+        assert!(is_signature_error(
+            "HTTP 400: Invalid Request Signature parameter (request_sig)"
+        ));
+        assert!(is_signature_error(
+            r#"{"code":400,"message":"Invalid Request Signature parameter (request_sig)"}"#
+        ));
+        assert!(is_signature_error("invalid signature"));
+    }
+
+    #[test]
+    fn non_signature_errors_are_not_misclassified() {
+        assert!(!is_signature_error(
+            r#"{"code":401,"message":"User authentication is required."}"#
+        ));
+        assert!(!is_signature_error("Invalid or missing app_id parameter."));
     }
 }

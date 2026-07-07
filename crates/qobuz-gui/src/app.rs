@@ -3,22 +3,39 @@
 use crate::style::{
     self, action_button, field_input, labeled_row, secondary_button, styled_button,
 };
+use iced::font;
 use iced::futures::{future, SinkExt};
 use iced::widget::{
-    button, checkbox, column, container, pick_list, progress_bar, row, scrollable, text, Space,
+    checkbox, column, container, image, pick_list, progress_bar, row, scrollable, text,
 };
-use iced::{Element, Length, Task, Theme};
+use iced::{Element, Font, Length, Task, Theme};
+use iced_aw::widget::{
+    badge::Badge, card::Card, number_input::NumberInput, tab_bar::TabLabel, tabs::Tabs,
+};
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
-use qobuz_core::{auth, engine, QobuzClient};
+use qobuz_core::{auth, engine, AppCredentials, QobuzClient};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// The app/window icon, rasterized from `assets/icon.svg`.
+fn window_icon() -> Option<iced::window::Icon> {
+    iced::window::icon::from_file_data(include_bytes!("../assets/icon.png"), None).ok()
+}
+
 pub fn run() -> iced::Result {
+    let window = iced::window::Settings {
+        size: iced::Size::new(1040.0, 1000.0),
+        icon: window_icon(),
+        ..Default::default()
+    };
     iced::application("Qobuz-dl", App::update, App::view)
         .theme(App::theme)
+        // iced_aw's NumberInput draws its spinner carets from this icon font.
+        .font(iced_aw::iced_fonts::REQUIRED_FONT_BYTES)
+        .window(window)
         .run_with(App::new)
 }
 
@@ -47,10 +64,18 @@ enum ItemStatus {
     Error(String),
 }
 
-/// Search results reduced to (id, label) pairs for display.
+/// An album search result: id, display label, and an optional cover URL.
+#[derive(Debug, Clone)]
+struct AlbumResult {
+    id: String,
+    label: String,
+    cover: Option<String>,
+}
+
+/// Search results reduced to display-ready entries.
 #[derive(Debug, Clone, Default)]
 struct SearchPayload {
-    albums: Vec<(String, String)>,
+    albums: Vec<AlbumResult>,
     tracks: Vec<(String, String)>,
     artists: Vec<(String, String)>,
 }
@@ -63,15 +88,14 @@ pub struct App {
     token: Option<String>,
 
     // Settings form fields.
-    email: String,
-    password: String,
     token_input: String,
-    concurrency: String,
 
     // Search / add.
     search_query: String,
     url_input: String,
     results: SearchPayload,
+    /// Album cover thumbnails, keyed by cover URL, loaded lazily.
+    thumbnails: HashMap<String, iced::widget::image::Handle>,
 
     // Queue.
     pending_jobs: Vec<Job>,
@@ -82,6 +106,9 @@ pub struct App {
     // UI preferences.
     dark_mode: bool,
     show_template_help: bool,
+    show_credentials_help: bool,
+    show_account_help: bool,
+    show_options_help: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -89,23 +116,25 @@ enum Message {
     Navigate(Screen),
     ToggleTheme,
     ToggleTemplateHelp,
+    ToggleCredentialsHelp,
+    ToggleAccountHelp,
+    ToggleOptionsHelp,
     CopyTemplate(String),
 
     // Settings inputs.
-    EmailChanged(String),
-    PasswordChanged(String),
     TokenChanged(String),
     AppIdChanged(String),
     AppSecretChanged(String),
+    AutoDetectCredentials,
+    CredentialsDetected(Result<AppCredentials, String>),
     FolderFormatChanged(String),
     TrackFormatChanged(String),
-    ConcurrencyChanged(String),
+    ConcurrencyChanged(usize),
     QualitySelected(Quality),
     EmbedArtToggled(bool),
     PickDir,
     DirChosen(Option<PathBuf>),
     SaveSettings,
-    LoginPassword,
     LoginToken,
     LoggedIn(Result<String, String>),
     SignOut,
@@ -114,6 +143,7 @@ enum Message {
     SearchQueryChanged(String),
     SearchSubmit,
     SearchDone(Result<SearchPayload, String>),
+    ThumbnailLoaded(String, Result<Vec<u8>, ()>),
     UrlChanged(String),
     AddUrl,
     Add(Reference),
@@ -139,15 +169,16 @@ impl App {
         };
         let app = App {
             screen: Screen::Settings,
-            concurrency: config.concurrency.to_string(),
             dark_mode: config.dark_mode,
             show_template_help: false,
-            email: String::new(),
-            password: String::new(),
+            show_credentials_help: false,
+            show_account_help: false,
+            show_options_help: false,
             token_input: String::new(),
             search_query: String::new(),
             url_input: String::new(),
             results: SearchPayload::default(),
+            thumbnails: HashMap::new(),
             pending_jobs: Vec::new(),
             queue: Vec::new(),
             index: HashMap::new(),
@@ -162,7 +193,8 @@ impl App {
 
     fn client(&self) -> Result<QobuzClient, String> {
         let mut c = QobuzClient::new(self.config.app_id.clone(), self.config.app_secret.clone())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+            .with_secret_candidates(self.config.app_secret_candidates.clone());
         if let Some(t) = &self.token {
             c = c.with_token(t.clone());
         }
@@ -189,17 +221,21 @@ impl App {
                 self.show_template_help = !self.show_template_help;
                 Task::none()
             }
+            Message::ToggleCredentialsHelp => {
+                self.show_credentials_help = !self.show_credentials_help;
+                Task::none()
+            }
+            Message::ToggleAccountHelp => {
+                self.show_account_help = !self.show_account_help;
+                Task::none()
+            }
+            Message::ToggleOptionsHelp => {
+                self.show_options_help = !self.show_options_help;
+                Task::none()
+            }
             Message::CopyTemplate(t) => iced::clipboard::write(t),
 
             // ---- Settings inputs ----
-            Message::EmailChanged(v) => {
-                self.email = v;
-                Task::none()
-            }
-            Message::PasswordChanged(v) => {
-                self.password = v;
-                Task::none()
-            }
             Message::TokenChanged(v) => {
                 self.token_input = v;
                 Task::none()
@@ -210,6 +246,29 @@ impl App {
             }
             Message::AppSecretChanged(v) => {
                 self.config.app_secret = v;
+                // A manually entered secret supersedes any auto-detected candidates.
+                self.config.app_secret_candidates.clear();
+                Task::none()
+            }
+            Message::AutoDetectCredentials => {
+                self.status = "Detecting credentials from the Qobuz web player…".into();
+                Task::perform(auto_detect_credentials(), Message::CredentialsDetected)
+            }
+            Message::CredentialsDetected(Ok(creds)) => {
+                self.config.app_id = creds.app_id;
+                // Keep the first candidate as the visible secret; the rest are
+                // tried automatically when signing.
+                let mut secrets = creds.app_secrets.into_iter();
+                self.config.app_secret = secrets.next().unwrap_or_default();
+                self.config.app_secret_candidates = secrets.collect();
+                self.status = match self.config.save() {
+                    Ok(()) => "Credentials detected and saved. You can now sign in.".into(),
+                    Err(e) => format!("Credentials detected but could not save: {e}"),
+                };
+                Task::none()
+            }
+            Message::CredentialsDetected(Err(e)) => {
+                self.status = format!("Auto-detect failed: {e}. Enter credentials manually.");
                 Task::none()
             }
             Message::FolderFormatChanged(v) => {
@@ -220,11 +279,8 @@ impl App {
                 self.config.track_format = v;
                 Task::none()
             }
-            Message::ConcurrencyChanged(v) => {
-                self.concurrency = v.clone();
-                if let Ok(n) = v.trim().parse::<usize>() {
-                    self.config.concurrency = n.clamp(1, 16);
-                }
+            Message::ConcurrencyChanged(n) => {
+                self.config.concurrency = n;
                 Task::none()
             }
             Message::QualitySelected(q) => {
@@ -248,16 +304,6 @@ impl App {
                 }
                 Task::none()
             }
-            Message::LoginPassword => {
-                if !self.config.has_app_credentials() {
-                    self.status = "Enter app_id and app_secret first.".into();
-                    return Task::none();
-                }
-                let (id, secret) = (self.config.app_id.clone(), self.config.app_secret.clone());
-                let (email, pw) = (self.email.clone(), self.password.clone());
-                self.status = "Signing in…".into();
-                Task::perform(login_password(id, secret, email, pw), Message::LoggedIn)
-            }
             Message::LoginToken => {
                 if !self.config.has_app_credentials() {
                     self.status = "Enter app_id and app_secret first.".into();
@@ -280,7 +326,6 @@ impl App {
                 }
                 self.token = Some(token);
                 self.signed_in = true;
-                self.password.clear();
                 let _ = self.config.save();
                 Task::none()
             }
@@ -324,13 +369,33 @@ impl App {
                 } else {
                     format!("{n} results.")
                 };
+                // Lazily load album cover thumbnails not already cached.
+                let fetches: Vec<Task<Message>> = payload
+                    .albums
+                    .iter()
+                    .filter_map(|a| a.cover.clone())
+                    .filter(|url| !self.thumbnails.contains_key(url))
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .map(|url| {
+                        Task::perform(fetch_thumbnail(url.clone()), move |res| {
+                            Message::ThumbnailLoaded(url.clone(), res)
+                        })
+                    })
+                    .collect();
                 self.results = payload;
-                Task::none()
+                Task::batch(fetches)
             }
             Message::SearchDone(Err(e)) => {
                 self.status = format!("Search failed: {e}");
                 Task::none()
             }
+            Message::ThumbnailLoaded(url, Ok(bytes)) => {
+                self.thumbnails
+                    .insert(url, iced::widget::image::Handle::from_bytes(bytes));
+                Task::none()
+            }
+            Message::ThumbnailLoaded(_, Err(())) => Task::none(),
             Message::UrlChanged(v) => {
                 self.url_input = v;
                 Task::none()
@@ -468,11 +533,27 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let nav = row![
-            nav_button("Settings", Screen::Settings, self.screen),
-            nav_button("Search / Add", Screen::Search, self.screen),
-            nav_button("Queue", Screen::Queue, self.screen),
-            Space::with_width(Length::Fill),
+        let a = style::accents(&self.theme());
+        let wordmark = row![
+            text("Qobuz")
+                .size(style::TEXT_TITLE)
+                .font(Font {
+                    weight: font::Weight::Bold,
+                    ..Font::DEFAULT
+                })
+                .color(a.mauve),
+            text("dl")
+                .size(style::TEXT_TITLE)
+                .font(Font {
+                    weight: font::Weight::Bold,
+                    ..Font::DEFAULT
+                })
+                .color(a.blue),
+        ]
+        .spacing(2);
+        let signed_in = self.signed_in;
+        let header = row![
+            wordmark.width(Length::Fill),
             secondary_button(
                 if self.dark_mode {
                     "☀  Light"
@@ -481,74 +562,92 @@ impl App {
                 },
                 Message::ToggleTheme,
             ),
-            text(if self.signed_in {
-                "● signed in"
+            text(if signed_in {
+                "●  signed in"
             } else {
-                "○ signed out"
-            }),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
-
-        let body = match self.screen {
-            Screen::Settings => self.settings_view(),
-            Screen::Search => self.search_view(),
-            Screen::Queue => self.queue_view(),
-        };
-
-        let content = column![
-            nav,
-            container(text(&self.status)).padding([style::SPACE_XS, 0]),
-            container(body).height(Length::Fill),
+                "○  signed out"
+            })
+            .size(style::TEXT_SM)
+            .color(if signed_in { a.green } else { a.red }),
         ]
         .spacing(style::SPACE_MD)
-        .padding(style::SPACE_XL);
+        .align_y(iced::Alignment::Center);
+
+        let tabs = Tabs::new(Message::Navigate)
+            .push(
+                Screen::Settings,
+                TabLabel::Text("Settings".to_owned()),
+                tab_pane(self.settings_view()),
+            )
+            .push(
+                Screen::Search,
+                TabLabel::Text("Search / Add".to_owned()),
+                tab_pane(self.search_view()),
+            )
+            .push(
+                Screen::Queue,
+                TabLabel::Text("Queue".to_owned()),
+                tab_pane(self.queue_view()),
+            )
+            .set_active_tab(&self.screen)
+            .tab_bar_style(style::tab_bar)
+            .tab_label_padding([style::SPACE_SM as f32, style::SPACE_LG as f32])
+            .tab_label_spacing(style::SPACE_XS as f32)
+            .text_size(style::TEXT_BODY as f32)
+            .height(Length::Fill);
+
+        let status_bar = container(text(&self.status).size(style::TEXT_SM))
+            .style(style::status_surface)
+            .padding([style::SPACE_SM, style::SPACE_MD])
+            .width(Length::Fill);
+
+        let content = column![header, status_bar, tabs]
+            .spacing(style::SPACE_LG)
+            .padding(style::SPACE_XL);
 
         content.into()
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
-        let auth_section = column![
-            section("Account"),
+        let creds_fields = row![
+            field_input("app_id", &self.config.app_id)
+                .on_input(Message::AppIdChanged)
+                .width(Length::FillPortion(1)),
+            field_input("app_secret", &self.config.app_secret)
+                .secure(true)
+                .on_input(Message::AppSecretChanged)
+                .width(Length::FillPortion(1)),
+        ]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center);
+        let mut creds_body = column![
+            creds_fields,
             row![
-                field_input("email", &self.email)
-                    .on_input(Message::EmailChanged)
-                    .width(Length::FillPortion(1)),
-                field_input("password", &self.password)
-                    .secure(true)
-                    .on_input(Message::PasswordChanged)
-                    .width(Length::FillPortion(1)),
-                action_button("Sign in", Message::LoginPassword),
-            ]
-            .spacing(style::SPACE_SM)
-            .align_y(iced::Alignment::Center),
-            row![
-                field_input("or paste a user_auth_token", &self.token_input)
-                    .on_input(Message::TokenChanged)
-                    .width(Length::Fill),
-                action_button("Use token", Message::LoginToken),
-                secondary_button("Sign out", Message::SignOut),
+                action_button("Auto-detect", Message::AutoDetectCredentials),
+                text("Fetch app_id and app_secret from the Qobuz web player.").size(style::TEXT_SM),
             ]
             .spacing(style::SPACE_SM)
             .align_y(iced::Alignment::Center),
         ]
         .spacing(style::SPACE_SM);
+        if self.show_credentials_help {
+            creds_body = creds_body.push(credentials_help());
+        }
 
-        let creds_section = column![
-            section("API credentials"),
-            row![
-                field_input("app_id", &self.config.app_id)
-                    .on_input(Message::AppIdChanged)
-                    .width(Length::FillPortion(1)),
-                field_input("app_secret", &self.config.app_secret)
-                    .secure(true)
-                    .on_input(Message::AppSecretChanged)
-                    .width(Length::FillPortion(1)),
-            ]
-            .spacing(style::SPACE_SM)
-            .align_y(iced::Alignment::Center),
+        let mut auth_body = column![row![
+            field_input("paste your user_auth_token", &self.token_input)
+                .secure(true)
+                .on_input(Message::TokenChanged)
+                .width(Length::Fill),
+            action_button("Sign in", Message::LoginToken),
+            secondary_button("Sign out", Message::SignOut),
         ]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center),]
         .spacing(style::SPACE_SM);
+        if self.show_account_help {
+            auth_body = auth_body.push(account_help());
+        }
 
         let dir_row = labeled_row(
             "Download to:",
@@ -560,7 +659,7 @@ impl App {
             .align_y(iced::Alignment::Center),
         );
 
-        let options_row = row![
+        let options_controls = row![
             text("Quality:"),
             pick_list(
                 Quality::ALL.to_vec(),
@@ -568,25 +667,25 @@ impl App {
                 Message::QualitySelected,
             ),
             checkbox("Embed cover art", self.config.embed_art).on_toggle(Message::EmbedArtToggled),
+            iced::widget::horizontal_space(),
             text("Concurrency:"),
-            field_input("3", &self.concurrency)
-                .on_input(Message::ConcurrencyChanged)
-                .width(Length::Fixed(60.0)),
+            NumberInput::new(
+                &self.config.concurrency,
+                1..=16,
+                Message::ConcurrencyChanged
+            )
+            .step(1)
+            .width(Length::Fixed(120.0)),
         ]
         .spacing(style::SPACE_MD)
         .align_y(iced::Alignment::Center);
+        let mut options_body = column![options_controls].spacing(style::SPACE_SM);
+        if self.show_options_help {
+            options_body = options_body.push(options_help());
+        }
 
         let preview = self.template_preview();
-        let help_toggle = secondary_button(
-            if self.show_template_help {
-                "Hide template help"
-            } else {
-                "Show template help"
-            },
-            Message::ToggleTemplateHelp,
-        );
-        let mut templates_section = column![
-            section("File organization"),
+        let mut org_body = column![
             dir_row,
             labeled_row(
                 "Folder:",
@@ -599,22 +698,50 @@ impl App {
                     .on_input(Message::TrackFormatChanged),
             ),
             container(text(preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
-            help_toggle,
         ]
         .spacing(style::SPACE_SM);
         if self.show_template_help {
-            templates_section = templates_section.push(template_help());
+            org_body = org_body.push(template_help());
         }
 
         scrollable(
             column![
-                creds_section,
-                auth_section,
-                templates_section,
-                options_row,
+                help_card(
+                    "API credentials",
+                    creds_body,
+                    |a| a.mauve,
+                    self.show_credentials_help,
+                    Message::ToggleCredentialsHelp
+                ),
+                help_card(
+                    "Account",
+                    auth_body,
+                    |a| a.green,
+                    self.show_account_help,
+                    Message::ToggleAccountHelp
+                ),
+                help_card(
+                    "File organization",
+                    org_body,
+                    |a| a.teal,
+                    self.show_template_help,
+                    Message::ToggleTemplateHelp
+                ),
+                help_card(
+                    "Options",
+                    options_body,
+                    |a| a.peach,
+                    self.show_options_help,
+                    Message::ToggleOptionsHelp
+                ),
                 action_button("Save settings", Message::SaveSettings),
             ]
-            .spacing(style::SPACE_LG),
+            .spacing(style::SPACE_LG)
+            .padding(iced::Padding {
+                left: style::SCROLLBAR_GUTTER,
+                right: style::SCROLLBAR_GUTTER,
+                ..iced::Padding::ZERO
+            }),
         )
         .into()
     }
@@ -667,24 +794,28 @@ impl App {
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
 
-        let mut results = column![].spacing(style::SPACE_SM);
+        let mut results = column![].spacing(style::SPACE_MD);
         if !self.results.albums.is_empty() {
-            results = results.push(section("Albums"));
-            for (id, label) in &self.results.albums {
-                results = results.push(result_row(label, Reference::Album(id.clone())));
+            let mut rows = column![].spacing(style::SPACE_XS);
+            for a in &self.results.albums {
+                let thumb = a.cover.as_ref().and_then(|u| self.thumbnails.get(u));
+                rows = rows.push(album_result_row(a, thumb));
             }
+            results = results.push(card("Albums", rows, |a| a.blue));
         }
         if !self.results.tracks.is_empty() {
-            results = results.push(section("Tracks"));
+            let mut rows = column![].spacing(style::SPACE_XS);
             for (id, label) in &self.results.tracks {
-                results = results.push(result_row(label, Reference::Track(id.clone())));
+                rows = rows.push(result_row(label, Reference::Track(id.clone())));
             }
+            results = results.push(card("Tracks", rows, |a| a.green));
         }
         if !self.results.artists.is_empty() {
-            results = results.push(section("Artists"));
+            let mut rows = column![].spacing(style::SPACE_XS);
             for (id, label) in &self.results.artists {
-                results = results.push(result_row(label, Reference::Artist(id.clone())));
+                rows = rows.push(result_row(label, Reference::Artist(id.clone())));
             }
+            results = results.push(card("Artists", rows, |a| a.mauve));
         }
 
         column![
@@ -692,7 +823,12 @@ impl App {
             search_bar,
             section("Add by URL / ID"),
             url_bar,
-            scrollable(results).height(Length::Fill),
+            scrollable(results.padding(iced::Padding {
+                left: style::SCROLLBAR_GUTTER,
+                right: style::SCROLLBAR_GUTTER,
+                ..iced::Padding::ZERO
+            }))
+            .height(Length::Fill),
         ]
         .spacing(style::SPACE_MD)
         .into()
@@ -735,24 +871,153 @@ impl App {
             header,
             progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
                 .height(Length::Fixed(style::PROGRESS_HEIGHT)),
-            scrollable(list).height(Length::Fill),
+            scrollable(list.padding(iced::Padding {
+                left: style::SCROLLBAR_GUTTER,
+                right: style::SCROLLBAR_GUTTER,
+                ..iced::Padding::ZERO
+            }))
+            .height(Length::Fill),
         ]
         .spacing(style::SPACE_MD)
         .into()
     }
 }
 
-fn nav_button(label: &str, target: Screen, current: Screen) -> Element<'_, Message> {
-    let b = button(text(label)).on_press(Message::Navigate(target));
-    if target == current {
-        b.into()
-    } else {
-        b.style(button::secondary).into()
+fn section(title: &str) -> Element<'_, Message> {
+    text(title).size(style::TEXT_SECTION).into()
+}
+
+/// Wraps a tab's content in a bordered pane so the active tab's area is clearly
+/// delimited beneath the tab bar.
+fn tab_pane<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content)
+        .style(style::panel)
+        .padding(style::SPACE_LG)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// A titled card grouping a section's controls. `head` picks the accent color
+/// for the card's header from the active Catppuccin flavor.
+fn card<'a>(
+    title: &'a str,
+    body: impl Into<Element<'a, Message>>,
+    head: fn(&style::Accents) -> iced::Color,
+) -> Element<'a, Message> {
+    card_el(text(title).size(style::TEXT_SECTION), body, head)
+}
+
+/// Like [`card`] but with an arbitrary header element (e.g. a title plus a help
+/// toggle) instead of a plain title.
+fn card_el<'a>(
+    head_content: impl Into<Element<'a, Message>>,
+    body: impl Into<Element<'a, Message>>,
+    head: fn(&style::Accents) -> iced::Color,
+) -> Element<'a, Message> {
+    Card::new(head_content, body)
+        .style(move |theme, _status| {
+            let a = style::accents(theme);
+            style::card(&a, head(&a))
+        })
+        .into()
+}
+
+/// A settings card whose header carries a right-aligned "?" help toggle.
+fn help_card<'a>(
+    title: &'a str,
+    body: impl Into<Element<'a, Message>>,
+    head: fn(&style::Accents) -> iced::Color,
+    shown: bool,
+    toggle: Message,
+) -> Element<'a, Message> {
+    let header = row![
+        text(title).size(style::TEXT_SECTION).width(Length::Fill),
+        style::help_button(shown, toggle),
+    ]
+    .align_y(iced::Alignment::Center);
+    card_el(header, body, head)
+}
+
+/// Background/foreground accent selector for a queue item's status badge.
+fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, iced::Color) {
+    match status {
+        ItemStatus::Queued => |a| (a.surface2, a.text),
+        ItemStatus::Downloading => |a| (a.blue, a.on_accent),
+        ItemStatus::Tagging => |a| (a.yellow, a.on_accent),
+        ItemStatus::Done(_) => |a| (a.green, a.on_accent),
+        ItemStatus::Error(_) => |a| (a.red, a.on_accent),
     }
 }
 
-fn section(title: &str) -> Element<'_, Message> {
-    text(title).size(style::TEXT_SECTION).into()
+/// One `mono token — description` row for a help panel.
+fn help_term(token: &'static str, desc: &'static str) -> Element<'static, Message> {
+    row![
+        style::mono(token).width(Length::Fixed(style::LABEL_WIDTH)),
+        text(desc).size(style::TEXT_SM),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// Help for the API credentials card: what the fields are and how to obtain them.
+fn credentials_help() -> Element<'static, Message> {
+    column![
+        help_term("app_id", "Public client id, sent as the x-app-id request header."),
+        help_term(
+            "app_secret",
+            "Secret used to sign track file-URL requests; never sent as-is.",
+        ),
+        text("Normally you don't need to do anything here — press \"Auto-detect\" and the app extracts both values from the Qobuz web player for you.")
+            .size(style::TEXT_SM),
+        text("Manual fallback (if auto-detect fails)").size(style::TEXT_BODY),
+        text("1. Open play.qobuz.com in a browser and sign in.").size(style::TEXT_SM),
+        text("2. Open the browser developer tools (F12 / ⌥⌘I) → Network tab.").size(style::TEXT_SM),
+        text("3. Reload; in any request to the Qobuz API, read the request header \"x-app-id\" — that is your app_id.")
+            .size(style::TEXT_SM),
+        text("4. In the Sources/Debugger tab, open the player's main JavaScript bundle and search for the app secret (a long hex string used for signing); copy it as app_secret.")
+            .size(style::TEXT_SM),
+        text("If signing later fails, the web player may have rotated these — press Auto-detect again or re-extract them.")
+            .size(style::TEXT_SM),
+    ]
+    .spacing(style::SPACE_XS)
+    .into()
+}
+
+/// Help for the Account card: how to obtain the user_auth_token and sign in.
+fn account_help() -> Element<'static, Message> {
+    column![
+        text("Signing in with a token").size(style::TEXT_BODY),
+        text("Qobuz sign-in uses your account's user_auth_token (email/password login is not supported — it does not work for partner/bundled accounts such as Qobuz via a telco).")
+            .size(style::TEXT_SM),
+        text("How to get your token from the Qobuz web player:").size(style::TEXT_SM),
+        text("1. Open play.qobuz.com in a browser and sign in normally.").size(style::TEXT_SM),
+        text("2. Open the browser developer tools (F12 / ⌥⌘I) → Network tab.").size(style::TEXT_SM),
+        text("3. Reload the page, then click any request to the Qobuz API and read the request header \"x-user-auth-token\".")
+            .size(style::TEXT_SM),
+        text("4. Copy that value, paste it above, and press Sign in.").size(style::TEXT_SM),
+        text("• The token is stored in your operating system keyring, not in the config file.")
+            .size(style::TEXT_SM),
+        text("• The header shows \"● signed in\" once a session is active; Sign out clears the stored token.")
+            .size(style::TEXT_SM),
+    ]
+    .spacing(style::SPACE_XS)
+    .into()
+}
+
+/// Help for the Options card: quality tiers, concurrency, and cover-art embedding.
+fn options_help() -> Element<'static, Message> {
+    column![
+        text("Options").size(style::TEXT_BODY),
+        text("• Quality: MP3 320 · FLAC 16/44.1 (CD) · FLAC 24/≤96 · FLAC 24/≤192 (Hi-Res). The service may deliver a lower tier than requested; the actual quality is read from the response.")
+            .size(style::TEXT_SM),
+        text("• Concurrency: how many tracks download at once (1–16).").size(style::TEXT_SM),
+        text("• Embed cover art: writes the album cover into each downloaded file's tags.")
+            .size(style::TEXT_SM),
+    ]
+    .spacing(style::SPACE_XS)
+    .into()
 }
 
 /// Example folder templates offered in the help panel (using real placeholders).
@@ -827,8 +1092,13 @@ fn template_help() -> Element<'static, Message> {
         track_ex = track_ex.push(example_row(t, Message::TrackFormatChanged(t.to_string())));
     }
 
-    column![section("Placeholders"), list, rules, folder_ex, track_ex,]
-        .spacing(style::SPACE_SM)
+    let body = column![section("Placeholders"), list, rules, folder_ex, track_ex,]
+        .spacing(style::SPACE_SM);
+    Card::new(text("Template help").size(style::TEXT_SECTION), body)
+        .style(|theme, _status| {
+            let a = style::accents(theme);
+            style::card(&a, a.sky)
+        })
         .into()
 }
 
@@ -836,6 +1106,33 @@ fn result_row<'a>(label: &'a str, reference: Reference) -> Element<'a, Message> 
     row![
         text(label).width(Length::Fill),
         secondary_button("Add", Message::Add(reference)),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// An album result row with its cover thumbnail (or a placeholder while loading).
+fn album_result_row<'a>(
+    album: &'a AlbumResult,
+    thumb: Option<&image::Handle>,
+) -> Element<'a, Message> {
+    const SIZE: f32 = 52.0;
+    let cover: Element<'a, Message> = match thumb {
+        Some(handle) => image(handle.clone())
+            .width(Length::Fixed(SIZE))
+            .height(Length::Fixed(SIZE))
+            .into(),
+        None => container(text(""))
+            .width(Length::Fixed(SIZE))
+            .height(Length::Fixed(SIZE))
+            .style(style::thumb_placeholder)
+            .into(),
+    };
+    row![
+        cover,
+        text(&album.label).width(Length::Fill),
+        secondary_button("Add", Message::Add(Reference::Album(album.id.clone()))),
     ]
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center)
@@ -850,7 +1147,8 @@ fn queue_row(it: &QueueItem) -> Element<'_, Message> {
                 Some(t) if t > 0 => it.downloaded as f32 / t as f32,
                 _ => 0.0,
             };
-            (format!("downloading {:.0}%", f * 100.0), f)
+            // Pad to a constant width so the badge doesn't shift as digits change.
+            (format!("downloading {:>3.0}%", f * 100.0), f)
         }
         ItemStatus::Tagging => ("tagging".into(), 1.0),
         ItemStatus::Done(q) => (format!("done · {q}"), 1.0),
@@ -858,11 +1156,16 @@ fn queue_row(it: &QueueItem) -> Element<'_, Message> {
     };
 
     column![
-        row![
-            text(&it.title).width(Length::Fill),
-            text(status_text).size(style::TEXT_SM),
-        ]
-        .spacing(style::SPACE_SM),
+        row![text(&it.title).width(Length::Fill), {
+            let pick = badge_palette(&it.status);
+            Badge::new(text(status_text).size(style::TEXT_SM)).style(move |theme, _status| {
+                let a = style::accents(theme);
+                let (bg, fg) = pick(&a);
+                style::badge(bg, fg)
+            })
+        },]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center),
         progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
             .height(Length::Fixed(style::PROGRESS_HEIGHT)),
     ]
@@ -879,16 +1182,13 @@ async fn pick_dir() -> Option<PathBuf> {
         .map(|h| h.path().to_path_buf())
 }
 
-async fn login_password(
-    app_id: String,
-    app_secret: String,
-    email: String,
-    password: String,
-) -> Result<String, String> {
-    let mut c = QobuzClient::new(app_id, app_secret).map_err(|e| e.to_string())?;
-    c.login(&email, &password).await.map_err(|e| e.to_string())
+async fn auto_detect_credentials() -> Result<AppCredentials, String> {
+    qobuz_core::discover_app_credentials()
+        .await
+        .map_err(|e| e.to_string())
 }
 
+/// Validate a pasted `user_auth_token` and return it on success.
 async fn login_token(app_id: String, app_secret: String, token: String) -> Result<String, String> {
     let mut c = QobuzClient::new(app_id, app_secret).map_err(|e| e.to_string())?;
     c.login_with_token(&token)
@@ -903,7 +1203,18 @@ async fn do_search(client: QobuzClient, query: String) -> Result<SearchPayload, 
     if let Some(list) = r.albums {
         for a in list.items {
             let label = format!("{} — {}", a.artist_name(), a.title);
-            payload.albums.push((a.id, label));
+            // Prefer a small image for the thumbnail to keep downloads cheap.
+            let cover = a.image.as_ref().and_then(|i| {
+                i.small
+                    .clone()
+                    .or_else(|| i.thumbnail.clone())
+                    .or_else(|| i.large.clone())
+            });
+            payload.albums.push(AlbumResult {
+                id: a.id,
+                label,
+                cover,
+            });
         }
     }
     if let Some(list) = r.tracks {
@@ -918,6 +1229,11 @@ async fn do_search(client: QobuzClient, query: String) -> Result<SearchPayload, 
         }
     }
     Ok(payload)
+}
+
+/// Download the bytes of an album cover thumbnail via the core client.
+async fn fetch_thumbnail(url: String) -> Result<Vec<u8>, ()> {
+    qobuz_core::fetch_bytes(&url).await.map_err(|_| ())
 }
 
 async fn resolve(client: QobuzClient, reference: Reference) -> Result<Vec<Job>, String> {

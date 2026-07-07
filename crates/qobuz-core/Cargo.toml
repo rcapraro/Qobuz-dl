@@ -15,6 +15,8 @@ thiserror.workspace = true
 tracing.workspace = true
 futures-util.workspace = true
 md-5 = "0.10"
+regex = "1"
+base64 = "0.22"
 lofty = "0.22"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 directories = "5"

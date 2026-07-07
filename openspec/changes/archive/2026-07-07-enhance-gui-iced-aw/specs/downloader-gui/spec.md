@@ -1,8 +1,5 @@
-# downloader-gui Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change add-qobuz-downloader. Update Purpose after archive.
-## Requirements
 ### Requirement: Tabbed navigation
 
 The system SHALL present the Settings, Search/Add, and Queue sections as a tab bar,
@@ -20,26 +17,17 @@ independent of the selected tab.
 - **WHEN** the user switches between any tabs
 - **THEN** the theme toggle and the signed-in/out indicator remain visible
 
+## MODIFIED Requirements
+
 ### Requirement: Settings screen
-The system SHALL provide a settings screen exposing Qobuz sign-in via a
-`user_auth_token`, `app_id`/`app_secret`, download-directory picker, quality
+The system SHALL provide a settings screen exposing Qobuz login (email/password
+or raw token), `app_id`/`app_secret`, download-directory picker, quality
 selector, cover-art toggle, folder/track template fields with a live preview, and
 a bounded numeric concurrency control that accepts only values in the range 1–16.
-The account section SHALL NOT offer email/password login (unsupported by Qobuz for
-partner/bundled accounts) and SHALL explain how to obtain the token from the Qobuz
-web player.
 
 #### Scenario: Configure and save
 - **WHEN** the user fills in credentials and preferences and saves
 - **THEN** the settings are persisted and the app reflects the signed-in state
-
-#### Scenario: Token sign-in
-- **WHEN** the user pastes a valid `user_auth_token` and presses Sign in
-- **THEN** the token is validated, stored in the OS keyring, and the account is reported as signed in
-
-#### Scenario: Guidance for obtaining the token
-- **WHEN** the user opens the account help panel
-- **THEN** the app explains that sign-in uses a `user_auth_token` and how to copy it from the web player's developer tools
 
 #### Scenario: Concurrency is bounded
 - **WHEN** the user adjusts the concurrency control
@@ -49,9 +37,7 @@ web player.
 The system SHALL provide a screen to search the catalog and to paste a Qobuz
 URL/ID, and to add resulting albums/tracks/playlists to the download queue.
 Search results SHALL be grouped by type (albums, tracks, artists) in distinct card
-containers, each result offering a per-row add control. Album results SHALL
-display the album cover as a thumbnail, loaded asynchronously without blocking
-the results list.
+containers, each result offering a per-row add control.
 
 #### Scenario: Add search result to queue
 - **WHEN** the user selects an album from search results and clicks add
@@ -65,10 +51,6 @@ the results list.
 - **WHEN** search results are displayed
 - **THEN** albums, tracks, and artists appear in separate card sections, each row exposing its own add control
 
-#### Scenario: Album cover thumbnails
-- **WHEN** album results are displayed
-- **THEN** each album row shows its cover thumbnail once loaded, with a placeholder shown while loading or when no cover is available, and the list remains usable before thumbnails finish loading
-
 ### Requirement: Download queue screen
 The system SHALL display a download queue with per-item status
 (queued/downloading/tagging/done/error) shown as a colored badge, per-item
@@ -81,24 +63,3 @@ progress bars, and overall progress.
 #### Scenario: Error visibility
 - **WHEN** an item fails to download
 - **THEN** its row shows an error status badge with a message explaining the failure
-
-### Requirement: Auto-detect credentials control
-The Settings screen SHALL provide a control that triggers automatic discovery
-of the Qobuz `app_id` and `app_secret`, populates the credential fields with the
-result, and communicates progress and outcome to the user.
-
-#### Scenario: User triggers auto-detection
-- **WHEN** the user activates the auto-detect control in Settings
-- **THEN** the app runs discovery without blocking the UI and indicates that
-  detection is in progress
-
-#### Scenario: Fields populated on success
-- **WHEN** discovery succeeds
-- **THEN** the `app_id` and `app_secret` fields are filled with the discovered
-  values and a success message is shown
-
-#### Scenario: Error surfaced on failure
-- **WHEN** discovery fails
-- **THEN** the app shows a clear error message and the credential fields keep
-  their previous contents so the user can still enter values manually
-

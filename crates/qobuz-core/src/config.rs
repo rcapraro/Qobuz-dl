@@ -32,6 +32,9 @@ pub struct Config {
     pub app_id: String,
     /// Qobuz web-player API app secret (required for signed calls).
     pub app_secret: String,
+    /// Additional candidate app secrets from auto-detection. Only one is valid;
+    /// the client tries each (plus `app_secret`) when signing.
+    pub app_secret_candidates: Vec<String>,
     /// Cached user id for the raw-token auth path.
     pub user_id: String,
     /// Whether the GUI uses the dark theme (true) or the light theme (false).
@@ -49,6 +52,7 @@ impl Default for Config {
             concurrency: 3,
             app_id: String::new(),
             app_secret: String::new(),
+            app_secret_candidates: Vec::new(),
             user_id: String::new(),
             dark_mode: true,
         }
@@ -88,7 +92,12 @@ impl Config {
     }
 
     pub fn has_app_credentials(&self) -> bool {
-        !self.app_id.trim().is_empty() && !self.app_secret.trim().is_empty()
+        !self.app_id.trim().is_empty()
+            && (!self.app_secret.trim().is_empty()
+                || self
+                    .app_secret_candidates
+                    .iter()
+                    .any(|s| !s.trim().is_empty()))
     }
 }
 

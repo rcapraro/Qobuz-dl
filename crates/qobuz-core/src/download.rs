@@ -16,6 +16,17 @@ pub enum Progress {
     Tagging,
 }
 
+/// Fetch the raw bytes at `url` fully into memory (e.g. a small album cover
+/// thumbnail). Unauthenticated; builds its own short-lived client.
+pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
+    let http = reqwest::Client::builder()
+        .user_agent("qobuz-dl/0.1 (+https://github.com/)")
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let resp = http.get(url).send().await?.error_for_status()?;
+    Ok(resp.bytes().await?.to_vec())
+}
+
 /// Stream `url` to `dest`, emitting [`Progress::Bytes`] events. The file is
 /// written incrementally — never fully buffered in memory.
 pub async fn stream_to_file(

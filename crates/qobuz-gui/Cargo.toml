@@ -12,7 +12,13 @@ path = "src/main.rs"
 
 [dependencies]
 qobuz-core = { path = "../qobuz-core" }
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.13", features = ["tokio", "advanced", "image"] }
+iced_aw = { version = "0.12", default-features = false, features = [
+    "tabs",
+    "number_input",
+    "card",
+    "badge",
+] }
 rfd = "0.15"
 tokio.workspace = true
 tracing.workspace = true
@@ -26,6 +32,7 @@ identifier = "com.qobuzdl.qobuz-dl"
 description = "Download Qobuz music with quality, cover-art, and tagging control"
 category = "Music"
 formats = ["dmg", "nsis", "deb", "appimage"]
+icons = ["assets/icon.png"]
 
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"
