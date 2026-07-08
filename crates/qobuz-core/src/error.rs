@@ -13,9 +13,6 @@ pub enum Error {
     #[error("authentication failed: {0}")]
     Auth(String),
 
-    #[error("account not eligible for downloads (free or restricted)")]
-    IneligibleAccount,
-
     #[error("request signature rejected — check the app_secret")]
     InvalidSignature,
 

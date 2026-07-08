@@ -36,16 +36,17 @@ CI builds releases automatically on a `v*` tag (`.github/workflows/release.yml`)
 **Separation of concerns:** the GUI never touches HTTP or the filesystem directly. It builds a `QobuzClient` via `App::client()` and delegates all network/IO to `qobuz-core`. The only interface between the two is the functions re-exported in `crates/qobuz-core/src/lib.rs` plus the `JobEvent` progress channel. The core is concrete structs + free functions — no trait abstractions or dyn dispatch.
 
 **qobuz-core** (`crates/qobuz-core/src/`):
-- `engine.rs` — the hub. `resolve(Reference) -> Vec<Job>` flattens metadata into per-track jobs; `download_all` runs jobs concurrently under a `Semaphore` (`config.concurrency`), isolating per-item failures, emitting `JobEvent`s.
+- `engine.rs` — the hub. `resolve(Reference) -> Vec<Job>` flattens metadata into per-track jobs (deduped by track id); `download_all` runs jobs concurrently under a `Semaphore` (`config.concurrency`), isolating per-item failures, emitting `JobEvent`s.
 - `client.rs` — `QobuzClient`: async reqwest JSON client. Holds `app_id`, `app_secret`, optional `token`. Cloneable.
 - `signature.rs` — MD5 request signing (see quirks below).
 - `auth.rs` — stores `user_auth_token` in the OS keyring only; never in config.
-- `download.rs` — streams to a `.part` temp file then atomic rename; `with_retry` uses exponential backoff on transient errors only (429/network/5xx), fails fast on permanent ones.
+- `download.rs` — streams to a process-unique `.partN` temp file then atomic rename; `with_retry` uses exponential backoff on transient errors only (429/network/5xx), fails fast on permanent ones. `fetch_bytes` (whole-body GET with status check) also backs cover-art/thumbnail fetches.
+- `bootstrap.rs` — auto-detects `app_id`/`app_secret` candidates from the Qobuz web player bundle (`discover_app_credentials`).
 - `tagging.rs` — audio tags + cover-art embedding via `lofty` (container chosen by file extension).
 - `template.rs` — `{placeholder}` path templating; each path segment sanitized independently.
 - `quality.rs`, `catalog.rs`, `config.rs`, `models.rs`, `error.rs` — quality/format mapping, URL/ID parsing into `Reference`, persisted JSON settings, serde API models, central `thiserror` `Error`.
 
-**qobuz-gui** (`crates/qobuz-gui/src/`): `main.rs` is a thin entry (tracing setup → `app::run()`). `app.rs` (~790 lines) is the whole app in classic iced Elm architecture — `struct App` (state) / `enum Message` / update / view, with three screens (`enum Screen { Settings, Search, Queue }`). Async core calls are wrapped in `Task::perform`; download progress bridges a `tokio::sync::mpsc` channel of `JobEvent`s into `Message::Download` via `iced::stream::channel`. The queue is keyed by `track_id` (`index: HashMap<i64, usize>`).
+**qobuz-gui** (`crates/qobuz-gui/src/`): `main.rs` is a thin entry (tracing setup → `app::run()`). Classic iced Elm architecture — `app.rs` holds `struct App` (state) / `enum Message` / update, with three screens (`enum Screen { Settings, Search, Queue }`); the per-screen views live in `app/view/{settings,search,queue}.rs` (shared widget helpers in `app/view/mod.rs`), static help panels in `app/help.rs`, and the `Task::perform` async wrappers around core calls in `app/tasks.rs`. `style.rs` is the design system (spacing/typography constants, Catppuccin palettes, widget builders). Download progress bridges a `tokio::sync::mpsc` channel of `JobEvent`s into `Message::Download` via `iced::stream::channel`. Queue rows are looked up by linear scan on `track_id` (no index map); `signed_in`/theme are derived from `token`/`config`, never stored twice.
 
 **Data flow:** auth (email/password `login`, or pasted raw token `login_with_token`) → `search` or paste URL/ID (`catalog::parse_input`) → `engine::resolve` → `engine::download_all`. Per track: request a fresh signed file URL just-in-time → determine *delivered* quality from the response `format_id` → build path from templates → stream to `.part` → embed art (cached per-album) → write tags.
 

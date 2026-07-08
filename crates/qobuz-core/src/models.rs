@@ -5,27 +5,6 @@
 
 use serde::Deserialize;
 
-/// Response from `user/login`.
-#[derive(Debug, Clone, Deserialize)]
-pub struct LoginResponse {
-    pub user_auth_token: String,
-    pub user: User,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct User {
-    pub id: Option<serde_json::Value>,
-    /// Present (non-null) for accounts eligible to stream/download.
-    #[serde(default)]
-    pub credential: Option<Credential>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Credential {
-    #[serde(default)]
-    pub parameters: Option<serde_json::Value>,
-}
-
 /// An artist reference as embedded in albums/tracks.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ArtistRef {

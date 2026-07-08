@@ -55,8 +55,9 @@ pub fn sanitize_segment(input: &str) -> String {
     out = collapsed.trim().trim_matches('.').trim().to_string();
 
     if out.len() > MAX_SEGMENT_LEN {
-        out.truncate(MAX_SEGMENT_LEN);
-        out = out.trim().to_string();
+        out = crate::util::truncate_at_char_boundary(&out, MAX_SEGMENT_LEN)
+            .trim()
+            .to_string();
     }
 
     if out.is_empty() {
@@ -189,5 +190,13 @@ mod tests {
     fn unknown_placeholder_is_empty() {
         let s = render_segment("{title}{nope}", &ctx());
         assert_eq!(s, "So What");
+    }
+
+    #[test]
+    fn long_multibyte_segment_is_capped_without_panicking() {
+        // 250 × 'é' = 500 bytes; the cap must land on a char boundary.
+        let s = sanitize_segment(&"é".repeat(250));
+        assert!(s.len() <= MAX_SEGMENT_LEN);
+        assert!(s.chars().all(|c| c == 'é'));
     }
 }

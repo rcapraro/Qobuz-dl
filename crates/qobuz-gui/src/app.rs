@@ -1,17 +1,10 @@
 //! The iced desktop application: settings, search/add, and download queue.
 
-use crate::style::{
-    self, action_button, field_input, labeled_row, secondary_button, styled_button,
-};
-use iced::font;
+use crate::style::{self, secondary_button};
 use iced::futures::{future, SinkExt};
-use iced::widget::{
-    button, checkbox, column, container, image, pick_list, progress_bar, row, scrollable, text,
-};
-use iced::{Element, Font, Length, Task, Theme};
-use iced_aw::widget::{
-    badge::Badge, card::Card, number_input::NumberInput, tab_bar::TabLabel, tabs::Tabs,
-};
+use iced::widget::{column, container, row, text};
+use iced::{Element, Length, Task, Theme};
+use iced_aw::widget::{tab_bar::TabLabel, tabs::Tabs};
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
@@ -19,6 +12,10 @@ use qobuz_core::quality::Quality;
 use qobuz_core::{auth, engine, AppCredentials, QobuzClient, SigningCheck};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+mod help;
+mod tasks;
+mod view;
 
 /// The app/window icon, rasterized from `assets/icon.svg`.
 fn window_icon() -> Option<iced::window::Icon> {
@@ -88,12 +85,27 @@ struct SearchPayload {
     artists: Vec<(String, String)>,
 }
 
+/// How the active session's token came to be — shown in the Account card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenOrigin {
+    /// Loaded from the OS keyring at startup.
+    Restored,
+    /// Pasted and validated by a Sign in during this session.
+    ValidatedThisSession,
+}
+
+/// The in-memory copy of the stored auth token plus its origin.
+#[derive(Debug, Clone)]
+struct StoredToken {
+    value: String,
+    origin: TokenOrigin,
+}
+
 pub struct App {
     screen: Screen,
     config: Config,
     status: String,
-    signed_in: bool,
-    token: Option<String>,
+    token: Option<StoredToken>,
 
     // Settings form fields.
     token_input: String,
@@ -112,11 +124,9 @@ pub struct App {
 
     // Queue.
     queue: Vec<QueueItem>,
-    index: HashMap<i64, usize>,
     downloading: bool,
 
     // UI preferences.
-    dark_mode: bool,
     show_template_help: bool,
     show_credentials_help: bool,
     show_account_help: bool,
@@ -175,10 +185,22 @@ enum Message {
 
 impl App {
     fn new() -> (Self, Task<Message>) {
-        let config = Config::load().unwrap_or_default();
-        let token = auth::load_token().ok().flatten();
-        let signed_in = token.is_some();
-        let status = if signed_in {
+        // `load` only errors on a real failure (a missing file yields defaults) —
+        // don't silently discard the user's saved settings without a hint.
+        let (config, config_error) = match Config::load() {
+            Ok(c) => (c, None),
+            Err(e) => {
+                tracing::warn!("could not load config: {e}");
+                (Config::default(), Some(e))
+            }
+        };
+        let token = auth::load_token().ok().flatten().map(|value| StoredToken {
+            value,
+            origin: TokenOrigin::Restored,
+        });
+        let status = if let Some(e) = config_error {
+            format!("Could not load saved settings ({e}); using defaults.")
+        } else if token.is_some() {
             "Restored saved session.".to_string()
         } else if !config.has_app_credentials() {
             "Enter your Qobuz app_id / app_secret and sign in (Settings).".to_string()
@@ -187,7 +209,6 @@ impl App {
         };
         let app = App {
             screen: Screen::Settings,
-            dark_mode: config.dark_mode,
             show_template_help: false,
             show_credentials_help: false,
             show_account_help: false,
@@ -199,14 +220,30 @@ impl App {
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
             queue: Vec::new(),
-            index: HashMap::new(),
             downloading: false,
             token,
-            signed_in,
             status,
             config,
         };
         (app, Task::none())
+    }
+
+    /// Signed-in state, derived from the token so the two can never disagree.
+    fn signed_in(&self) -> bool {
+        self.token.is_some()
+    }
+
+    /// Persist the config, surfacing a failure instead of dropping it silently.
+    fn save_config(&mut self) {
+        if let Err(e) = self.config.save() {
+            tracing::warn!("could not save config: {e}");
+            self.status = format!("Could not save settings: {e}");
+        }
+    }
+
+    /// The queue row for `track_id`, if any.
+    fn item_mut(&mut self, track_id: i64) -> Option<&mut QueueItem> {
+        self.queue.iter_mut().find(|it| it.track_id == track_id)
     }
 
     fn client(&self) -> Result<QobuzClient, String> {
@@ -214,13 +251,13 @@ impl App {
             .map_err(|e| e.to_string())?
             .with_secret_candidates(self.config.app_secret_candidates.clone());
         if let Some(t) = &self.token {
-            c = c.with_token(t.clone());
+            c = c.with_token(t.value.clone());
         }
         Ok(c)
     }
 
     fn theme(&self) -> Theme {
-        style::theme(self.dark_mode)
+        style::theme(self.config.dark_mode)
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -230,9 +267,8 @@ impl App {
                 Task::none()
             }
             Message::ToggleTheme => {
-                self.dark_mode = !self.dark_mode;
-                self.config.dark_mode = self.dark_mode;
-                let _ = self.config.save();
+                self.config.dark_mode = !self.config.dark_mode;
+                self.save_config();
                 Task::none()
             }
             Message::ToggleTemplateHelp => {
@@ -273,7 +309,10 @@ impl App {
             }
             Message::AutoDetectCredentials => {
                 self.status = "Detecting credentials from the Qobuz web player…".into();
-                Task::perform(auto_detect_credentials(), Message::CredentialsDetected)
+                Task::perform(
+                    tasks::auto_detect_credentials(),
+                    Message::CredentialsDetected,
+                )
             }
             Message::CredentialsDetected(Ok(creds)) => {
                 self.config.app_id = creds.app_id;
@@ -296,14 +335,14 @@ impl App {
                 Task::none()
             }
             Message::CheckSigning => {
-                if !self.signed_in {
+                if !self.signed_in() {
                     self.status = "Sign in before checking signing.".into();
                     return Task::none();
                 }
                 match self.client() {
                     Ok(client) => {
                         self.status = "Checking request signing…".into();
-                        Task::perform(check_signing_probe(client), Message::SigningChecked)
+                        Task::perform(tasks::check_signing_probe(client), Message::SigningChecked)
                     }
                     Err(e) => {
                         self.status = e;
@@ -327,9 +366,8 @@ impl App {
                     // The primary came from auto-detect; adopt the candidate that
                     // actually signs so the check reads cleanly from now on.
                     self.config.promote_secret(&working_secret);
-                    let _ = self.config.save();
-                    self.status =
-                        "Signing OK — request signatures are being accepted.".into();
+                    self.status = "Signing OK — request signatures are being accepted.".into();
+                    self.save_config();
                 }
                 Task::none()
             }
@@ -357,7 +395,7 @@ impl App {
                 self.config.embed_art = b;
                 Task::none()
             }
-            Message::PickDir => Task::perform(pick_dir(), Message::DirChosen),
+            Message::PickDir => Task::perform(tasks::pick_dir(), Message::DirChosen),
             Message::DirChosen(Some(p)) => {
                 self.config.download_dir = p;
                 Task::none()
@@ -382,7 +420,7 @@ impl App {
                     return Task::none();
                 }
                 self.status = "Validating token…".into();
-                Task::perform(login_token(id, secret, token), Message::LoggedIn)
+                Task::perform(tasks::login_token(id, secret, token), Message::LoggedIn)
             }
             Message::LoggedIn(Ok(token)) => {
                 if let Err(e) = auth::store_token(&token) {
@@ -390,21 +428,29 @@ impl App {
                 } else {
                     self.status = "Signed in.".into();
                 }
-                self.token = Some(token);
-                self.signed_in = true;
-                let _ = self.config.save();
+                self.token = Some(StoredToken {
+                    value: token,
+                    origin: TokenOrigin::ValidatedThisSession,
+                });
+                self.save_config();
                 Task::none()
             }
             Message::LoggedIn(Err(e)) => {
                 self.status = format!("Sign-in failed: {e}");
-                self.signed_in = false;
                 Task::none()
             }
             Message::SignOut => {
-                let _ = auth::clear_token();
-                self.token = None;
-                self.signed_in = false;
-                self.status = "Signed out.".into();
+                // Only drop the in-memory token when the keyring copy is
+                // actually gone — the displayed state must stay truthful.
+                self.status = match auth::clear_token() {
+                    Ok(()) => {
+                        self.token = None;
+                        "Signed out.".into()
+                    }
+                    Err(e) => {
+                        format!("Sign-out failed: the stored token could not be removed: {e}")
+                    }
+                };
                 Task::none()
             }
 
@@ -426,7 +472,7 @@ impl App {
                     }
                 };
                 self.status = format!("Searching “{q}”…");
-                Task::perform(do_search(client, q), Message::SearchDone)
+                Task::perform(tasks::do_search(client, q), Message::SearchDone)
             }
             Message::SearchDone(Ok(payload)) => {
                 let n = payload.albums.len() + payload.tracks.len() + payload.artists.len();
@@ -435,16 +481,20 @@ impl App {
                 } else {
                     format!("{n} results.")
                 };
-                // Lazily load album cover thumbnails not already cached.
-                let fetches: Vec<Task<Message>> = payload
+                // Keep only this search's covers cached — without the eviction
+                // the map grows for every cover ever viewed in the session.
+                let wanted: std::collections::HashSet<String> = payload
                     .albums
                     .iter()
                     .filter_map(|a| a.cover.clone())
-                    .filter(|url| !self.thumbnails.contains_key(url))
-                    .collect::<std::collections::HashSet<_>>()
+                    .collect();
+                self.thumbnails.retain(|url, _| wanted.contains(url));
+                // Lazily load album cover thumbnails not already cached.
+                let fetches: Vec<Task<Message>> = wanted
                     .into_iter()
+                    .filter(|url| !self.thumbnails.contains_key(url))
                     .map(|url| {
-                        Task::perform(fetch_thumbnail(url.clone()), move |res| {
+                        Task::perform(tasks::fetch_thumbnail(url.clone()), move |res| {
                             Message::ThumbnailLoaded(url.clone(), res)
                         })
                     })
@@ -482,16 +532,15 @@ impl App {
                     }
                 };
                 self.status = format!("Resolving {}…", reference.kind());
-                Task::perform(resolve(client, reference), Message::Resolved)
+                Task::perform(tasks::resolve(client, reference), Message::Resolved)
             }
             Message::Resolved(Ok(jobs)) => {
                 let mut added = 0;
                 for job in jobs {
                     let track_id = job.track.id;
-                    if self.index.contains_key(&track_id) {
+                    if self.queue.iter().any(|it| it.track_id == track_id) {
                         continue;
                     }
-                    self.index.insert(track_id, self.queue.len());
                     self.queue.push(QueueItem {
                         track_id,
                         title: format!("{} — {}", job.track.artist_name(), job.track.title),
@@ -524,9 +573,9 @@ impl App {
             }
             Message::RetryTrack(track_id) => {
                 let job = self
-                    .index
-                    .get(&track_id)
-                    .and_then(|&i| self.queue.get(i))
+                    .queue
+                    .iter()
+                    .find(|it| it.track_id == track_id)
                     .filter(|it| matches!(it.status, ItemStatus::Error(_)))
                     .map(|it| it.job.clone());
                 match job {
@@ -552,7 +601,7 @@ impl App {
                 if let Some(secret) = working_secret {
                     if secret != self.config.app_secret {
                         self.config.promote_secret(&secret);
-                        let _ = self.config.save();
+                        self.save_config();
                     }
                 }
                 let errors = self
@@ -586,7 +635,7 @@ impl App {
         if jobs.is_empty() || self.downloading {
             return Task::none();
         }
-        if !self.signed_in {
+        if !self.signed_in() {
             self.status = "Sign in before downloading.".into();
             return Task::none();
         }
@@ -598,11 +647,7 @@ impl App {
             }
         };
         for job in &jobs {
-            if let Some(it) = self
-                .index
-                .get(&job.track.id)
-                .and_then(|&i| self.queue.get_mut(i))
-            {
+            if let Some(it) = self.item_mut(job.track.id) {
                 it.status = ItemStatus::Queued;
                 it.downloaded = 0;
                 it.total = None;
@@ -640,11 +685,7 @@ impl App {
             | JobEvent::Done { track_id, .. }
             | JobEvent::Failed { track_id, .. } => *track_id,
         };
-        let Some(item) = self
-            .index
-            .get(&track_id)
-            .and_then(|&i| self.queue.get_mut(i))
-        else {
+        let Some(item) = self.item_mut(track_id) else {
             return;
         };
         match ev {
@@ -667,25 +708,19 @@ impl App {
         let wordmark = row![
             text("Qobuz")
                 .size(style::TEXT_TITLE)
-                .font(Font {
-                    weight: font::Weight::Bold,
-                    ..Font::DEFAULT
-                })
+                .font(view::bold())
                 .color(a.mauve),
             text("dl")
                 .size(style::TEXT_TITLE)
-                .font(Font {
-                    weight: font::Weight::Bold,
-                    ..Font::DEFAULT
-                })
+                .font(view::bold())
                 .color(a.blue),
         ]
         .spacing(2);
-        let signed_in = self.signed_in;
+        let signed_in = self.signed_in();
         let header = row![
             wordmark.width(Length::Fill),
             secondary_button(
-                if self.dark_mode {
+                if self.config.dark_mode {
                     "☀  Light"
                 } else {
                     "★  Dark"
@@ -707,17 +742,17 @@ impl App {
             .push(
                 Screen::Settings,
                 TabLabel::Text("Settings".to_owned()),
-                tab_pane(self.settings_view()),
+                tab_pane(view::settings::settings_view(self)),
             )
             .push(
                 Screen::Search,
                 TabLabel::Text("Search / Add".to_owned()),
-                tab_pane(self.search_view()),
+                tab_pane(view::search::search_view(self)),
             )
             .push(
                 Screen::Queue,
                 TabLabel::Text("Queue".to_owned()),
-                tab_pane(self.queue_view()),
+                tab_pane(view::queue::queue_view(self)),
             )
             .set_active_tab(&self.screen)
             .tab_bar_style(style::tab_bar)
@@ -737,307 +772,6 @@ impl App {
 
         content.into()
     }
-
-    fn settings_view(&self) -> Element<'_, Message> {
-        let creds_fields = row![
-            field_input("app_id", &self.config.app_id)
-                .on_input(Message::AppIdChanged)
-                .width(Length::FillPortion(1)),
-            field_input("app_secret", &self.config.app_secret)
-                .secure(true)
-                .on_input(Message::AppSecretChanged)
-                .width(Length::FillPortion(1)),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
-        let mut creds_body = column![
-            creds_fields,
-            row![
-                action_button("Auto-detect", Message::AutoDetectCredentials),
-                // Wider label than the fixed button width; size to content so it
-                // isn't clipped to "Check".
-                action_button("Check signing", Message::CheckSigning).width(Length::Shrink),
-                text("Fetch app_id and app_secret from the Qobuz web player.").size(style::TEXT_SM),
-            ]
-            .spacing(style::SPACE_SM)
-            .align_y(iced::Alignment::Center),
-        ]
-        .spacing(style::SPACE_SM);
-        if self.show_credentials_help {
-            creds_body = creds_body.push(credentials_help());
-        }
-
-        let mut auth_body = column![row![
-            field_input("paste your user_auth_token", &self.token_input)
-                .secure(true)
-                .on_input(Message::TokenChanged)
-                .width(Length::Fill),
-            action_button("Sign in", Message::LoginToken),
-            secondary_button("Sign out", Message::SignOut),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center),]
-        .spacing(style::SPACE_SM);
-        if self.show_account_help {
-            auth_body = auth_body.push(account_help());
-        }
-
-        let dir_row = labeled_row(
-            "Download to:",
-            row![
-                text(self.config.download_dir.display().to_string()).width(Length::Fill),
-                secondary_button("Choose…", Message::PickDir),
-            ]
-            .spacing(style::SPACE_SM)
-            .align_y(iced::Alignment::Center),
-        );
-
-        let options_controls = row![
-            text("Quality:"),
-            pick_list(
-                Quality::ALL.to_vec(),
-                Some(self.config.quality),
-                Message::QualitySelected,
-            ),
-            checkbox("Embed cover art", self.config.embed_art).on_toggle(Message::EmbedArtToggled),
-            iced::widget::horizontal_space(),
-            text("Concurrency:"),
-            NumberInput::new(
-                &self.config.concurrency,
-                1..=16,
-                Message::ConcurrencyChanged
-            )
-            .step(1)
-            .width(Length::Fixed(120.0)),
-        ]
-        .spacing(style::SPACE_MD)
-        .align_y(iced::Alignment::Center);
-        let mut options_body = column![options_controls].spacing(style::SPACE_SM);
-        if self.show_options_help {
-            options_body = options_body.push(options_help());
-        }
-
-        let preview = self.template_preview();
-        let mut org_body = column![
-            dir_row,
-            labeled_row(
-                "Folder:",
-                field_input("folder format", &self.config.folder_format)
-                    .on_input(Message::FolderFormatChanged),
-            ),
-            labeled_row(
-                "Track:",
-                field_input("track format", &self.config.track_format)
-                    .on_input(Message::TrackFormatChanged),
-            ),
-            container(text(preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
-        ]
-        .spacing(style::SPACE_SM);
-        if self.show_template_help {
-            org_body = org_body.push(template_help());
-        }
-
-        scrollable(
-            column![
-                help_card(
-                    "API credentials",
-                    creds_body,
-                    |a| a.mauve,
-                    self.show_credentials_help,
-                    Message::ToggleCredentialsHelp
-                ),
-                help_card(
-                    "Account",
-                    auth_body,
-                    |a| a.green,
-                    self.show_account_help,
-                    Message::ToggleAccountHelp
-                ),
-                help_card(
-                    "File organization",
-                    org_body,
-                    |a| a.teal,
-                    self.show_template_help,
-                    Message::ToggleTemplateHelp
-                ),
-                help_card(
-                    "Options",
-                    options_body,
-                    |a| a.peach,
-                    self.show_options_help,
-                    Message::ToggleOptionsHelp
-                ),
-                action_button("Save settings", Message::SaveSettings),
-            ]
-            .spacing(style::SPACE_LG)
-            .padding(iced::Padding {
-                left: style::SCROLLBAR_GUTTER,
-                right: style::SCROLLBAR_GUTTER,
-                ..iced::Padding::ZERO
-            }),
-        )
-        .into()
-    }
-
-    /// A representative rendered path using the current templates.
-    fn template_preview(&self) -> String {
-        use qobuz_core::template::{render_path, render_segment, TemplateContext};
-        let mut ctx = TemplateContext::new();
-        ctx.set("albumartist", "Miles Davis")
-            .set("artist", "Miles Davis")
-            .set("album", "Kind of Blue")
-            .set("title", "So What")
-            .set("year", "1959")
-            .set("container", self.config.quality.extension().to_uppercase())
-            .set("bit_depth", "24")
-            .set("sampling_rate", "96")
-            .set("explicit", "")
-            .with_track_number(1);
-        let folder = render_path(&self.config.folder_format, &ctx).join("/");
-        let file = render_segment(&self.config.track_format, &ctx);
-        format!(
-            "Preview: {}/{}.{}",
-            folder,
-            file,
-            self.config.quality.extension()
-        )
-    }
-
-    fn search_view(&self) -> Element<'_, Message> {
-        let search_bar = row![
-            field_input("search albums, tracks, artists…", &self.search_query)
-                .on_input(Message::SearchQueryChanged)
-                .on_submit(Message::SearchSubmit)
-                .width(Length::Fill),
-            action_button("Search", Message::SearchSubmit),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
-
-        let url_bar = row![
-            field_input(
-                "paste a Qobuz URL or ID (album / track / playlist)",
-                &self.url_input
-            )
-            .on_input(Message::UrlChanged)
-            .on_submit(Message::AddUrl)
-            .width(Length::Fill),
-            action_button("Add", Message::AddUrl),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
-
-        let mut results = column![].spacing(style::SPACE_MD);
-        if !self.results.albums.is_empty() {
-            let mut rows = column![].spacing(style::SPACE_XS);
-            for a in &self.results.albums {
-                let thumb = a.cover.as_ref().and_then(|u| self.thumbnails.get(u));
-                rows = rows.push(album_result_row(a, thumb));
-            }
-            results = results.push(card("Albums", rows, |a| a.blue));
-        }
-        if !self.results.tracks.is_empty() {
-            let mut rows = column![].spacing(style::SPACE_XS);
-            for (id, label) in &self.results.tracks {
-                rows = rows.push(result_row(label, Reference::Track(id.clone())));
-            }
-            results = results.push(card("Tracks", rows, |a| a.green));
-        }
-        if !self.results.artists.is_empty() {
-            let mut rows = column![].spacing(style::SPACE_XS);
-            for (id, label) in &self.results.artists {
-                rows = rows.push(result_row(label, Reference::Artist(id.clone())));
-            }
-            results = results.push(card("Artists", rows, |a| a.mauve));
-        }
-
-        column![
-            section("Add by search"),
-            search_bar,
-            section("Add by URL / ID"),
-            url_bar,
-            scrollable(results.padding(iced::Padding {
-                left: style::SCROLLBAR_GUTTER,
-                right: style::SCROLLBAR_GUTTER,
-                ..iced::Padding::ZERO
-            }))
-            .height(Length::Fill),
-        ]
-        .spacing(style::SPACE_MD)
-        .into()
-    }
-
-    fn queue_view(&self) -> Element<'_, Message> {
-        let (done, total_bytes, got_bytes) =
-            self.queue
-                .iter()
-                .fold((0usize, 0u64, 0u64), |(d, tb, gb), it| {
-                    let d = d + matches!(it.status, ItemStatus::Done(_)) as usize;
-                    (d, tb + it.total.unwrap_or(0), gb + it.downloaded)
-                });
-        let overall = if total_bytes > 0 {
-            got_bytes as f32 / total_bytes as f32
-        } else if self.queue.is_empty() {
-            0.0
-        } else {
-            done as f32 / self.queue.len() as f32
-        };
-
-        let failed = self
-            .queue
-            .iter()
-            .filter(|it| matches!(it.status, ItemStatus::Error(_)))
-            .count();
-
-        let mut header =
-            row![text(format!("{done}/{} complete", self.queue.len())).width(Length::Fill),]
-                .spacing(style::SPACE_SM)
-                .align_y(iced::Alignment::Center);
-
-        if failed > 0 && !self.downloading {
-            // Built manually (not `secondary_button`) so the label can be an
-            // owned String rather than a borrowed `&str`.
-            header = header.push(
-                button(text(format!("Retry failed ({failed})")).center())
-                    .padding([style::SPACE_XS, style::SPACE_MD])
-                    .height(Length::Fixed(style::CONTROL_HEIGHT))
-                    .style(button::secondary)
-                    .on_press(Message::RetryFailed),
-            );
-        }
-
-        header = header.push(
-            styled_button(if self.downloading {
-                "Downloading…"
-            } else {
-                "Start downloads"
-            })
-            .on_press_maybe((!self.downloading).then_some(Message::StartDownloads)),
-        );
-
-        let mut list = column![].spacing(style::SPACE_SM);
-        for it in &self.queue {
-            list = list.push(queue_row(it, self.downloading));
-        }
-
-        column![
-            header,
-            progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
-                .height(Length::Fixed(style::PROGRESS_HEIGHT)),
-            scrollable(list.padding(iced::Padding {
-                left: style::SCROLLBAR_GUTTER,
-                right: style::SCROLLBAR_GUTTER,
-                ..iced::Padding::ZERO
-            }))
-            .height(Length::Fill),
-        ]
-        .spacing(style::SPACE_MD)
-        .into()
-    }
-}
-
-fn section(title: &str) -> Element<'_, Message> {
-    text(title).size(style::TEXT_SECTION).into()
 }
 
 /// Wraps a tab's content in a bordered pane so the active tab's area is clearly
@@ -1049,381 +783,4 @@ fn tab_pane<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
-}
-
-/// A titled card grouping a section's controls. `head` picks the accent color
-/// for the card's header from the active Catppuccin flavor.
-fn card<'a>(
-    title: &'a str,
-    body: impl Into<Element<'a, Message>>,
-    head: fn(&style::Accents) -> iced::Color,
-) -> Element<'a, Message> {
-    card_el(text(title).size(style::TEXT_SECTION), body, head)
-}
-
-/// Like [`card`] but with an arbitrary header element (e.g. a title plus a help
-/// toggle) instead of a plain title.
-fn card_el<'a>(
-    head_content: impl Into<Element<'a, Message>>,
-    body: impl Into<Element<'a, Message>>,
-    head: fn(&style::Accents) -> iced::Color,
-) -> Element<'a, Message> {
-    Card::new(head_content, body)
-        .style(move |theme, _status| {
-            let a = style::accents(theme);
-            style::card(&a, head(&a))
-        })
-        .into()
-}
-
-/// A settings card whose header carries a right-aligned "?" help toggle.
-fn help_card<'a>(
-    title: &'a str,
-    body: impl Into<Element<'a, Message>>,
-    head: fn(&style::Accents) -> iced::Color,
-    shown: bool,
-    toggle: Message,
-) -> Element<'a, Message> {
-    let header = row![
-        text(title).size(style::TEXT_SECTION).width(Length::Fill),
-        style::help_button(shown, toggle),
-    ]
-    .align_y(iced::Alignment::Center);
-    card_el(header, body, head)
-}
-
-/// Background/foreground accent selector for a queue item's status badge.
-fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, iced::Color) {
-    match status {
-        ItemStatus::Queued => |a| (a.surface2, a.text),
-        ItemStatus::Downloading => |a| (a.blue, a.on_accent),
-        ItemStatus::Tagging => |a| (a.yellow, a.on_accent),
-        ItemStatus::Done(_) => |a| (a.green, a.on_accent),
-        ItemStatus::Error(_) => |a| (a.red, a.on_accent),
-    }
-}
-
-/// One `mono token — description` row for a help panel.
-fn help_term(token: &'static str, desc: &'static str) -> Element<'static, Message> {
-    row![
-        style::mono(token).width(Length::Fixed(style::LABEL_WIDTH)),
-        text(desc).size(style::TEXT_SM),
-    ]
-    .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center)
-    .into()
-}
-
-/// DevTools shortcut hint, formatted for the host OS. The `⌥⌘` glyphs are only
-/// emitted on macOS (where the system font renders them); other platforms get
-/// pure-ASCII `Ctrl+Shift+I`.
-fn devtools_shortcut() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "F12 / ⌥⌘I"
-    } else {
-        "F12 / Ctrl+Shift+I"
-    }
-}
-
-/// Help for the API credentials card: what the fields are and how to obtain them.
-fn credentials_help() -> Element<'static, Message> {
-    column![
-        help_term("app_id", "Public client id, sent as the x-app-id request header."),
-        help_term(
-            "app_secret",
-            "Secret used to sign track file-URL requests; never sent as-is.",
-        ),
-        text("Normally you don't need to do anything here — press \"Auto-detect\" and the app extracts both values from the Qobuz web player for you.")
-            .size(style::TEXT_SM),
-        text("Manual fallback (if auto-detect fails)").size(style::TEXT_BODY),
-        text("1. Open play.qobuz.com in a browser and sign in.").size(style::TEXT_SM),
-        text(format!("2. Open the browser developer tools ({}) → Network tab.", devtools_shortcut()))
-            .size(style::TEXT_SM),
-        text("3. Reload; in any request to the Qobuz API, read the request header \"x-app-id\" — that is your app_id.")
-            .size(style::TEXT_SM),
-        text("4. In the Sources/Debugger tab, open the player's main JavaScript bundle and search for the app secret (a long hex string used for signing); copy it as app_secret.")
-            .size(style::TEXT_SM),
-        text("If signing later fails, the web player may have rotated these — press Auto-detect again or re-extract them.")
-            .size(style::TEXT_SM),
-    ]
-    .spacing(style::SPACE_XS)
-    .into()
-}
-
-/// Help for the Account card: how to obtain the user_auth_token and sign in.
-fn account_help() -> Element<'static, Message> {
-    column![
-        text("Signing in with a token").size(style::TEXT_BODY),
-        text("Qobuz sign-in uses your account's user_auth_token (email/password login is not supported — it does not work for partner/bundled accounts such as Qobuz via a telco).")
-            .size(style::TEXT_SM),
-        text("How to get your token from the Qobuz web player:").size(style::TEXT_SM),
-        text("1. Open play.qobuz.com in a browser and sign in normally.").size(style::TEXT_SM),
-        text(format!("2. Open the browser developer tools ({}) → Network tab.", devtools_shortcut()))
-            .size(style::TEXT_SM),
-        text("3. Reload the page, then click any request to the Qobuz API and read the request header \"x-user-auth-token\".")
-            .size(style::TEXT_SM),
-        text("4. Copy that value, paste it above, and press Sign in.").size(style::TEXT_SM),
-        text("• The token is stored in your operating system keyring, not in the config file.")
-            .size(style::TEXT_SM),
-        text("• The header shows \"● signed in\" once a session is active; Sign out clears the stored token.")
-            .size(style::TEXT_SM),
-    ]
-    .spacing(style::SPACE_XS)
-    .into()
-}
-
-/// Help for the Options card: quality tiers, concurrency, and cover-art embedding.
-fn options_help() -> Element<'static, Message> {
-    column![
-        text("Options").size(style::TEXT_BODY),
-        text("• Quality: MP3 320 · FLAC 16/44.1 (CD) · FLAC 24/≤96 · FLAC 24/≤192 (Hi-Res). The service may deliver a lower tier than requested; the actual quality is read from the response.")
-            .size(style::TEXT_SM),
-        text("• Concurrency: how many tracks download at once (1–16).").size(style::TEXT_SM),
-        text("• Embed cover art: writes the album cover into each downloaded file's tags.")
-            .size(style::TEXT_SM),
-    ]
-    .spacing(style::SPACE_XS)
-    .into()
-}
-
-/// Example folder templates offered in the help panel (using real placeholders).
-const FOLDER_EXAMPLES: &[&str] = &[
-    "{albumartist}/{album} ({year})",
-    "{albumartist} - {album} [{container}]",
-    "{albumartist}/{album} ({year}) [{bit_depth}B-{sampling_rate}kHz]",
-];
-
-/// Example track templates offered in the help panel (using real placeholders).
-const TRACK_EXAMPLES: &[&str] = &[
-    "{tracknumber:02} - {title}",
-    "{tracknumber:02}. {artist} - {title}",
-    "{artist} - {title}{explicit}",
-];
-
-/// One example row: the template string plus Copy and Apply actions.
-fn example_row<'a>(template: &'a str, apply: Message) -> Element<'a, Message> {
-    row![
-        style::mono(template).width(Length::Fill),
-        secondary_button("Copy", Message::CopyTemplate(template.to_string())),
-        secondary_button("Apply", apply),
-    ]
-    .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center)
-    .into()
-}
-
-/// The template-syntax help panel: placeholders, rules, and copyable examples.
-fn template_help() -> Element<'static, Message> {
-    let placeholders = [
-        ("{albumartist}", "Album's primary artist"),
-        ("{artist}", "Track artist"),
-        ("{album}", "Album title"),
-        ("{title}", "Track title"),
-        ("{year}", "Release year"),
-        ("{container}", "Format/extension, e.g. FLAC"),
-        ("{bit_depth}", "Bit depth, e.g. 24"),
-        ("{sampling_rate}", "Sample rate in kHz, e.g. 96"),
-        ("{explicit}", "\" [E]\" for explicit tracks, else empty"),
-        ("{composer}", "Composer, when available"),
-        ("{tracknumber}", "Track number; pad with {tracknumber:02}"),
-    ];
-    let mut list = column![].spacing(style::SPACE_XS);
-    for (token, desc) in placeholders {
-        list = list.push(
-            row![
-                style::mono(token).width(Length::Fixed(style::LABEL_WIDTH + 40.0)),
-                text(desc).size(style::TEXT_SM),
-            ]
-            .spacing(style::SPACE_SM)
-            .align_y(iced::Alignment::Center),
-        );
-    }
-
-    let rules = column![
-        text("Syntax").size(style::TEXT_BODY),
-        text("• Use {placeholder} tokens; unknown tokens render as empty text.")
-            .size(style::TEXT_SM),
-        text("• Zero-pad numbers with {name:0N}, e.g. {tracknumber:02} → 01.").size(style::TEXT_SM),
-        text("• In the folder format, \"/\" creates nested subfolders.").size(style::TEXT_SM),
-        text("• Illegal filename characters are replaced automatically.").size(style::TEXT_SM),
-    ]
-    .spacing(style::SPACE_XS);
-
-    let mut folder_ex = column![section("Folder examples")].spacing(style::SPACE_XS);
-    for &t in FOLDER_EXAMPLES {
-        folder_ex = folder_ex.push(example_row(t, Message::FolderFormatChanged(t.to_string())));
-    }
-    let mut track_ex = column![section("Track examples")].spacing(style::SPACE_XS);
-    for &t in TRACK_EXAMPLES {
-        track_ex = track_ex.push(example_row(t, Message::TrackFormatChanged(t.to_string())));
-    }
-
-    let body = column![section("Placeholders"), list, rules, folder_ex, track_ex,]
-        .spacing(style::SPACE_SM);
-    Card::new(text("Template help").size(style::TEXT_SECTION), body)
-        .style(|theme, _status| {
-            let a = style::accents(theme);
-            style::card(&a, a.sky)
-        })
-        .into()
-}
-
-fn result_row<'a>(label: &'a str, reference: Reference) -> Element<'a, Message> {
-    row![
-        text(label).width(Length::Fill),
-        secondary_button("Add", Message::Add(reference)),
-    ]
-    .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center)
-    .into()
-}
-
-/// An album result row with its cover thumbnail (or a placeholder while loading).
-fn album_result_row<'a>(
-    album: &'a AlbumResult,
-    thumb: Option<&image::Handle>,
-) -> Element<'a, Message> {
-    const SIZE: f32 = 52.0;
-    let cover: Element<'a, Message> = match thumb {
-        Some(handle) => image(handle.clone())
-            .width(Length::Fixed(SIZE))
-            .height(Length::Fixed(SIZE))
-            .into(),
-        None => container(text(""))
-            .width(Length::Fixed(SIZE))
-            .height(Length::Fixed(SIZE))
-            .style(style::thumb_placeholder)
-            .into(),
-    };
-    row![
-        cover,
-        text(&album.label).width(Length::Fill),
-        secondary_button("Add", Message::Add(Reference::Album(album.id.clone()))),
-    ]
-    .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center)
-    .into()
-}
-
-fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
-    let (status_text, fraction): (String, f32) = match &it.status {
-        ItemStatus::Queued => ("queued".into(), 0.0),
-        ItemStatus::Downloading => {
-            let f = match it.total {
-                Some(t) if t > 0 => it.downloaded as f32 / t as f32,
-                _ => 0.0,
-            };
-            // Pad to a constant width so the badge doesn't shift as digits change.
-            (format!("downloading {:>3.0}%", f * 100.0), f)
-        }
-        ItemStatus::Tagging => ("tagging".into(), 1.0),
-        ItemStatus::Done(q) => (format!("done · {q}"), 1.0),
-        ItemStatus::Error(e) => (format!("error: {e}"), 0.0),
-    };
-
-    let pick = badge_palette(&it.status);
-    // Monospace so the padded percentage keeps a constant width (the default
-    // font's digits vary in width and shift the badge).
-    let badge = Badge::new(text(status_text).size(style::TEXT_SM).font(Font::MONOSPACE)).style(
-        move |theme, _status| {
-            let a = style::accents(theme);
-            let (bg, fg) = pick(&a);
-            style::badge(bg, fg)
-        },
-    );
-
-    let mut top = row![text(&it.title).width(Length::Fill), badge]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
-
-    // A failed track can be relaunched (disabled while a batch is running).
-    if matches!(it.status, ItemStatus::Error(_)) {
-        let retry = button(text("Retry").size(style::TEXT_SM))
-            .padding([style::SPACE_XS, style::SPACE_SM])
-            .style(button::secondary)
-            .on_press_maybe((!downloading).then_some(Message::RetryTrack(it.track_id)));
-        top = top.push(retry);
-    }
-
-    column![
-        top,
-        progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
-            .height(Length::Fixed(style::PROGRESS_HEIGHT)),
-    ]
-    .spacing(style::SPACE_XS)
-    .into()
-}
-
-// ---- Async helpers ------------------------------------------------------
-
-async fn pick_dir() -> Option<PathBuf> {
-    rfd::AsyncFileDialog::new()
-        .pick_folder()
-        .await
-        .map(|h| h.path().to_path_buf())
-}
-
-async fn auto_detect_credentials() -> Result<AppCredentials, String> {
-    qobuz_core::discover_app_credentials()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Probe whether request signing still works, independent of any real track.
-async fn check_signing_probe(client: QobuzClient) -> Result<SigningCheck, String> {
-    client.check_signing().await.map_err(|e| e.to_string())
-}
-
-/// Validate a pasted `user_auth_token` and return it on success.
-async fn login_token(app_id: String, app_secret: String, token: String) -> Result<String, String> {
-    let mut c = QobuzClient::new(app_id, app_secret).map_err(|e| e.to_string())?;
-    c.login_with_token(&token)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(token)
-}
-
-async fn do_search(client: QobuzClient, query: String) -> Result<SearchPayload, String> {
-    let r = client.search(&query, 25).await.map_err(|e| e.to_string())?;
-    let mut payload = SearchPayload::default();
-    if let Some(list) = r.albums {
-        for a in list.items {
-            let label = format!("{} — {}", a.artist_name(), a.title);
-            // Prefer a small image for the thumbnail to keep downloads cheap.
-            let cover = a.image.as_ref().and_then(|i| {
-                i.small
-                    .clone()
-                    .or_else(|| i.thumbnail.clone())
-                    .or_else(|| i.large.clone())
-            });
-            payload.albums.push(AlbumResult {
-                id: a.id,
-                label,
-                cover,
-            });
-        }
-    }
-    if let Some(list) = r.tracks {
-        for t in list.items {
-            let label = format!("{} — {}", t.artist_name(), t.title);
-            payload.tracks.push((t.id.to_string(), label));
-        }
-    }
-    if let Some(list) = r.artists {
-        for a in list.items {
-            payload.artists.push((a.id.to_string(), a.name));
-        }
-    }
-    Ok(payload)
-}
-
-/// Download the bytes of an album cover thumbnail via the core client.
-async fn fetch_thumbnail(url: String) -> Result<Vec<u8>, ()> {
-    qobuz_core::fetch_bytes(&url).await.map_err(|_| ())
-}
-
-async fn resolve(client: QobuzClient, reference: Reference) -> Result<Vec<Job>, String> {
-    engine::resolve(&client, &reference)
-        .await
-        .map_err(|e| e.to_string())
 }

@@ -35,8 +35,6 @@ pub struct Config {
     /// Additional candidate app secrets from auto-detection. Only one is valid;
     /// the client tries each (plus `app_secret`) when signing.
     pub app_secret_candidates: Vec<String>,
-    /// Cached user id for the raw-token auth path.
-    pub user_id: String,
     /// Whether the GUI uses the dark theme (true) or the light theme (false).
     pub dark_mode: bool,
 }
@@ -53,7 +51,6 @@ impl Default for Config {
             app_id: String::new(),
             app_secret: String::new(),
             app_secret_candidates: Vec::new(),
-            user_id: String::new(),
             dark_mode: true,
         }
     }
@@ -170,6 +167,15 @@ mod tests {
         let c: Config = serde_json::from_str(json).unwrap();
         assert_eq!(c.app_id, "abc");
         assert!(c.dark_mode);
+    }
+
+    #[test]
+    fn loads_config_with_removed_user_id_field() {
+        // Configs written before `user_id` was removed still carry it; unknown
+        // fields must be ignored, not rejected.
+        let json = r#"{"app_id": "abc", "user_id": "12345"}"#;
+        let c: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(c.app_id, "abc");
     }
 
     #[test]

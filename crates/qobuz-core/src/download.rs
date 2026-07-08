@@ -12,8 +12,6 @@ use tokio::sync::mpsc;
 pub enum Progress {
     /// Bytes transferred so far, and total if known (from Content-Length).
     Bytes { downloaded: u64, total: Option<u64> },
-    /// Switched to writing tags / embedding art.
-    Tagging,
 }
 
 /// Fetch the raw bytes at `url` fully into memory (e.g. a small album cover
@@ -62,8 +60,10 @@ pub async fn stream_to_file(
     let total = resp.content_length();
     // Write to a temp file, then rename on success so partial files aren't left
     // looking complete. On any error the partial file is removed so a retry
-    // starts clean and no orphaned `.part` is left behind.
-    let tmp = dest.with_extension("part");
+    // starts clean and no orphaned `.part` is left behind. The name carries a
+    // process-unique sequence number so two jobs that render the same
+    // destination can never stream into the same temp file.
+    let tmp = part_path(dest);
     match stream_to_tmp(resp, &tmp, total, progress).await {
         Ok(()) => {
             tokio::fs::rename(&tmp, dest).await?;
@@ -98,6 +98,13 @@ async fn stream_to_tmp(
     }
     file.flush().await?;
     Ok(())
+}
+
+/// A process-unique `.partN` sibling of `dest`.
+fn part_path(dest: &Path) -> std::path::PathBuf {
+    static PART_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = PART_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    dest.with_extension(format!("part{n}"))
 }
 
 /// Parse a `Retry-After` header (delta-seconds form) into a duration.
@@ -163,6 +170,12 @@ fn jitter_millis(max: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn part_paths_for_the_same_dest_are_unique() {
+        let dest = Path::new("/music/song.flac");
+        assert_ne!(part_path(dest), part_path(dest));
+    }
 
     #[tokio::test]
     async fn retry_gives_up_on_permanent_error() {

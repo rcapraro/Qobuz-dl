@@ -7,11 +7,11 @@ use crate::client::QobuzClient;
 use crate::config::Config;
 use crate::download::{self, Progress};
 use crate::error::{Error, Result};
-use crate::models::{Album, Track};
+use crate::models::{Album, Playlist, Track};
 use crate::quality::Quality;
 use crate::tagging::{self, TrackTags};
 use crate::template::{self, TemplateContext};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Semaphore};
@@ -73,23 +73,33 @@ pub async fn resolve(client: &QobuzClient, reference: &Reference) -> Result<Vec<
         }
         Reference::Playlist(id) => {
             let playlist = client.playlist(id).await?;
-            let tracks = playlist.tracks.map(|t| t.items).unwrap_or_default();
-            let mut jobs = Vec::new();
-            for track in tracks {
-                if let Some(album) = track.album.clone() {
-                    jobs.push(Job {
-                        track,
-                        album,
-                        multi_disc: false,
-                    });
-                }
-            }
-            Ok(jobs)
+            Ok(jobs_from_playlist(playlist))
         }
         Reference::Artist(_) => Err(Error::Config(
             "artist links aren't directly downloadable — pick one of the artist's albums".into(),
         )),
     }
+}
+
+fn jobs_from_playlist(playlist: Playlist) -> Vec<Job> {
+    let tracks = playlist.tracks.map(|t| t.items).unwrap_or_default();
+    // A playlist can list the same track twice; duplicate jobs would race on
+    // the same destination file. First occurrence wins.
+    let mut seen = HashSet::new();
+    let mut jobs = Vec::new();
+    for track in tracks {
+        if !seen.insert(track.id) {
+            continue;
+        }
+        if let Some(album) = track.album.clone() {
+            jobs.push(Job {
+                track,
+                album,
+                multi_disc: false,
+            });
+        }
+    }
+    jobs
 }
 
 fn jobs_from_album(mut album: Album) -> Vec<Job> {
@@ -130,32 +140,23 @@ pub async fn download_all(
         let cover_cache = cover_cache.clone();
 
         handles.push(tokio::spawn(async move {
-            let _permit = permit_sem.acquire().await;
+            let _permit = permit_sem
+                .acquire()
+                .await
+                .expect("semaphore is never closed");
             run_job(&client, &config, &job, &events, &cover_cache).await;
         }));
     }
 
     for h in handles {
-        let _ = h.await;
+        // A panicking job task emits no `Failed` event — at least leave a trace.
+        if let Err(e) = h.await {
+            tracing::error!("download job task failed: {e}");
+        }
     }
 }
 
-/// Download a single job (fetch → stream → tag), emitting its lifecycle
-/// [`JobEvent`]s (`Started`, `Progress`, `Tagging`, then `Done` or `Failed`).
-/// A failure is reported via `JobEvent::Failed` rather than returned, matching
-/// the batch behavior. Useful for relaunching one failed track.
-pub async fn download_job(
-    client: &QobuzClient,
-    config: &Config,
-    job: &Job,
-    events: &mpsc::Sender<JobEvent>,
-) {
-    let cover_cache = Mutex::new(HashMap::new());
-    run_job(client, config, job, events, &cover_cache).await;
-}
-
-/// Shared per-job body used by both `download_all` (with a batch-wide cover
-/// cache) and `download_job` (with a private cache).
+/// Per-job body: emit `Started`, run the download, report `Done`/`Failed`.
 async fn run_job(
     client: &QobuzClient,
     config: &Config,
@@ -200,6 +201,41 @@ async fn download_one(
     cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
 ) -> Result<(PathBuf, String)> {
     let track_id = job.track.id;
+
+    let (file, dest, delivered_quality) =
+        download_with_progress(client, config, job, events).await?;
+
+    // Fetch cover art (cached per album) if embedding is enabled.
+    let _ = events.send(JobEvent::Tagging { track_id }).await;
+    let cover = if config.embed_art {
+        fetch_cover(&job.album, cover_cache).await
+    } else {
+        None
+    };
+
+    // Write tags + embed art.
+    let tags = TrackTags {
+        track: &job.track,
+        album: &job.album,
+        cover: cover.as_deref(),
+    };
+    tagging::write_tags(&dest, &tags)?;
+
+    let delivered = describe_delivered(&file, delivered_quality);
+    Ok((dest, delivered))
+}
+
+/// Sign, stream, and retry: fetch a fresh signed URL and stream it to disk as
+/// one retryable unit (a retry always re-signs rather than reusing a
+/// possibly-expired URL), forwarding byte progress as [`JobEvent::Progress`].
+/// The destination is derived from the *delivered* quality of each response.
+async fn download_with_progress(
+    client: &QobuzClient,
+    config: &Config,
+    job: &Job,
+    events: &mpsc::Sender<JobEvent>,
+) -> Result<(crate::models::FileUrl, PathBuf, Quality)> {
+    let track_id = job.track.id;
     let track_id_str = track_id.to_string();
     let track_id_str = &track_id_str;
 
@@ -207,23 +243,18 @@ async fn download_one(
     let (tx, mut rx) = mpsc::channel::<Progress>(32);
     let ev = events.clone();
     let forward = tokio::spawn(async move {
-        while let Some(p) = rx.recv().await {
-            if let Progress::Bytes { downloaded, total } = p {
-                let _ = ev
-                    .send(JobEvent::Progress {
-                        track_id,
-                        downloaded,
-                        total,
-                    })
-                    .await;
-            }
+        while let Some(Progress::Bytes { downloaded, total }) = rx.recv().await {
+            let _ = ev
+                .send(JobEvent::Progress {
+                    track_id,
+                    downloaded,
+                    total,
+                })
+                .await;
         }
     });
 
-    // Fetch a fresh signed URL and stream to disk as one retryable unit, so a
-    // retry always re-signs rather than reusing a possibly-expired URL. The
-    // destination is derived from the *delivered* quality of each response.
-    let (file, dest, delivered_quality) = download::with_retry(MAX_ATTEMPTS, || {
+    let result = download::with_retry(MAX_ATTEMPTS, || {
         let tx = tx.clone();
         async move {
             let file = client.file_url(track_id_str, config.quality).await?;
@@ -238,28 +269,10 @@ async fn download_one(
             Ok::<_, Error>((file, dest, delivered_quality))
         }
     })
-    .await?;
+    .await;
     drop(tx);
     let _ = forward.await;
-
-    // 4. Fetch cover art (cached per album) if embedding is enabled.
-    let _ = events.send(JobEvent::Tagging { track_id }).await;
-    let cover = if config.embed_art {
-        fetch_cover(client, &job.album, cover_cache).await
-    } else {
-        None
-    };
-
-    // 5. Write tags + embed art.
-    let tags = TrackTags {
-        track: &job.track,
-        album: &job.album,
-        cover: cover.as_deref(),
-    };
-    tagging::write_tags(&dest, &tags)?;
-
-    let delivered = describe_delivered(&file, delivered_quality);
-    Ok((dest, delivered))
+    result
 }
 
 /// Render the full destination path: `download_dir / <folder segments> /
@@ -313,7 +326,6 @@ fn build_context(job: &Job, file: &crate::models::FileUrl, ext: &str) -> Templat
 }
 
 async fn fetch_cover(
-    client: &QobuzClient,
     album: &Album,
     cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
 ) -> Option<Vec<u8>> {
@@ -324,10 +336,9 @@ async fn fetch_cover(
         }
     }
     let url = album.image.as_ref().and_then(|i| i.best())?;
-    let bytes = match client.http().get(url).send().await {
-        Ok(r) => r.bytes().await.ok().map(|b| b.to_vec()),
-        Err(_) => None,
-    };
+    // `fetch_bytes` rejects non-2xx responses — without that check an error
+    // page's HTML body would get embedded as "cover art".
+    let bytes = crate::download::fetch_bytes(url).await.ok();
     cache.lock().await.insert(album.id.clone(), bytes.clone());
     bytes
 }
@@ -429,5 +440,24 @@ mod tests {
         };
         let path = build_path(&config, &job, &file, "flac");
         assert_eq!(path, PathBuf::from("/m/Kind of Blue/Disc 2/So What.flac"));
+    }
+
+    #[test]
+    fn playlist_duplicates_dedup_to_one_job() {
+        let track = sample_job().track;
+        let playlist = Playlist {
+            id: serde_json::json!(1),
+            name: "mix".into(),
+            tracks: Some(crate::models::TrackList {
+                items: vec![track.clone(), track],
+                total: Some(2),
+                offset: None,
+                limit: None,
+            }),
+            tracks_count: Some(2),
+        };
+        let jobs = jobs_from_playlist(playlist);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].track.id, 42);
     }
 }

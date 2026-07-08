@@ -187,15 +187,7 @@ impl QobuzClient {
     /// Fetch a playlist including all its tracks (paginating past 500).
     pub async fn playlist(&self, playlist_id: &str) -> Result<Playlist> {
         let mut playlist: Playlist = self
-            .get(
-                "playlist/get",
-                &[
-                    ("playlist_id", playlist_id.to_string()),
-                    ("extra", "tracks".to_string()),
-                    ("limit", PAGE_SIZE.to_string()),
-                    ("offset", "0".to_string()),
-                ],
-            )
+            .get("playlist/get", &playlist_page_params(playlist_id, 0))
             .await?;
 
         let total = playlist.tracks.as_ref().and_then(|t| t.total).unwrap_or(0);
@@ -207,15 +199,7 @@ impl QobuzClient {
 
         while offset < total {
             let page: Playlist = self
-                .get(
-                    "playlist/get",
-                    &[
-                        ("playlist_id", playlist_id.to_string()),
-                        ("extra", "tracks".to_string()),
-                        ("limit", PAGE_SIZE.to_string()),
-                        ("offset", offset.to_string()),
-                    ],
-                )
+                .get("playlist/get", &playlist_page_params(playlist_id, offset))
                 .await?;
             match page.tracks {
                 Some(tl) if !tl.items.is_empty() => {
@@ -228,18 +212,6 @@ impl QobuzClient {
             }
         }
         Ok(playlist)
-    }
-
-    pub async fn artist(&self, artist_id: &str) -> Result<Artist> {
-        self.get(
-            "artist/get",
-            &[
-                ("artist_id", artist_id.to_string()),
-                ("extra", "albums".to_string()),
-                ("limit", PAGE_SIZE.to_string()),
-            ],
-        )
-        .await
     }
 
     // ---- Search ---------------------------------------------------------
@@ -293,7 +265,7 @@ impl QobuzClient {
         // A rejected signature just means "wrong secret" — move to the next; any
         // other error is fatal and propagated immediately.
         let n = self.app_secrets.len();
-        let start = self.working_secret.lock().unwrap().unwrap_or(0) % n;
+        let start = self.working_secret_index().unwrap_or(0) % n;
         for k in 0..n {
             let idx = (start + k) % n;
             match self
@@ -301,7 +273,10 @@ impl QobuzClient {
                 .await
             {
                 Ok(file) => {
-                    *self.working_secret.lock().unwrap() = Some(idx);
+                    *self
+                        .working_secret
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(idx);
                     return Ok(file);
                 }
                 // Wrong secret — try the next candidate.
@@ -322,10 +297,18 @@ impl QobuzClient {
     /// Callers can persist it so a future session starts from the known-good
     /// secret instead of re-probing every candidate.
     pub fn working_secret(&self) -> Option<String> {
-        self.working_secret
-            .lock()
-            .unwrap()
+        self.working_secret_index()
             .and_then(|i| self.app_secrets.get(i).cloned())
+    }
+
+    /// The cached index of the last secret that signed successfully. A poisoned
+    /// lock is recovered — the cache holds a plain `Option<usize>` that can't be
+    /// left in a torn state.
+    fn working_secret_index(&self) -> Option<usize> {
+        *self
+            .working_secret
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Whether `secret`'s signature is accepted by `track/getFileUrl`. The API
@@ -336,7 +319,10 @@ impl QobuzClient {
     /// non-404 response settles it; stale tracks (404) are skipped.
     async fn secret_signs(&self, track_ids: &[i64], format_id: u32, secret: &str) -> Result<bool> {
         for id in track_ids {
-            match self.get_file_url_signed(&id.to_string(), format_id, secret).await {
+            match self
+                .get_file_url_signed(&id.to_string(), format_id, secret)
+                .await
+            {
                 Ok(_) | Err(Error::NoFileUrl) => return Ok(true),
                 Err(Error::InvalidSignature) => return Ok(false),
                 // Stale track ID — try the next one for a verdict.
@@ -371,7 +357,10 @@ impl QobuzClient {
         let format_id = Quality::default().format_id();
 
         // The entered (primary) secret first.
-        if self.secret_signs(&track_ids, format_id, &self.app_secrets[0]).await? {
+        if self
+            .secret_signs(&track_ids, format_id, &self.app_secrets[0])
+            .await?
+        {
             return Ok(SigningCheck::Primary);
         }
         // Entered secret rejected — does a saved candidate sign?
@@ -402,6 +391,16 @@ fn is_signature_error(body: &str) -> bool {
     lower.contains("signature") && (lower.contains("invalid") || lower.contains("request_sig"))
 }
 
+/// One page of `playlist/get?extra=tracks` parameters.
+fn playlist_page_params(playlist_id: &str, offset: u32) -> [(&'static str, String); 4] {
+    [
+        ("playlist_id", playlist_id.to_string()),
+        ("extra", "tracks".to_string()),
+        ("limit", PAGE_SIZE.to_string()),
+        ("offset", offset.to_string()),
+    ]
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -413,7 +412,7 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max])
+        format!("{}…", crate::util::truncate_at_char_boundary(s, max))
     }
 }
 
@@ -440,5 +439,13 @@ mod tests {
             r#"{"code":401,"message":"User authentication is required."}"#
         ));
         assert!(!is_signature_error("Invalid or missing app_id parameter."));
+    }
+
+    #[test]
+    fn truncating_a_multibyte_error_body_does_not_panic() {
+        // 'é' is 2 bytes: a 5-byte cap lands mid-codepoint.
+        let out = truncate("ééééé", 5);
+        assert_eq!(out, "éé…");
+        assert_eq!(truncate("short", 300), "short");
     }
 }
