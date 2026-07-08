@@ -11,5 +11,5 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Validate both workflow files (YAML parse / actionlint if available) and push the change on `main`; confirm the CI Linux job passes
+- [x] 3.1 Validate both workflow files (YAML parse / actionlint if available) and push the change on `main`; confirm the CI Linux job passes
 - [ ] 3.2 Push a test tag (or the next release tag) and confirm the GitHub Release carries the `.AppImage` and `.deb` assets alongside dmg and exe; iterate on missing system deps if the Linux job fails
