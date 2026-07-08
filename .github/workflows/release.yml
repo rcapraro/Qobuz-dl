@@ -22,6 +22,11 @@ jobs:
             format: nsis
             artifacts: |
               target/release/**/*setup.exe
+          - os: ubuntu-22.04        # x64; oldest LTS runner for widest glibc compat
+            format: appimage,deb
+            artifacts: |
+              target/release/**/*.AppImage
+              target/release/**/*.deb
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -30,6 +35,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux system dependencies
+        # GTK for file dialogs, OpenSSL for native-tls, FUSE for the
+        # linuxdeploy AppImage tooling used by cargo-packager.
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libssl-dev pkg-config libfuse2
 
       - name: Derive version from tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
