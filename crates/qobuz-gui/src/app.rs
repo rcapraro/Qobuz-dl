@@ -16,7 +16,7 @@ use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
-use qobuz_core::{auth, engine, AppCredentials, QobuzClient};
+use qobuz_core::{auth, engine, AppCredentials, QobuzClient, SigningCheck};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -97,6 +97,11 @@ pub struct App {
 
     // Settings form fields.
     token_input: String,
+    /// Whether `config.app_secret` was hand-edited since the last auto-detect.
+    /// A detected secret set is trusted as a whole (only one candidate is valid),
+    /// so the signing check silently adopts the working candidate; a hand-edited
+    /// secret that only signs via a fallback is surfaced as a warning instead.
+    secret_manually_edited: bool,
 
     // Search / add.
     search_query: String,
@@ -135,7 +140,7 @@ enum Message {
     AutoDetectCredentials,
     CredentialsDetected(Result<AppCredentials, String>),
     CheckSigning,
-    SigningChecked(Result<(), String>),
+    SigningChecked(Result<SigningCheck, String>),
     FolderFormatChanged(String),
     TrackFormatChanged(String),
     ConcurrencyChanged(usize),
@@ -188,6 +193,7 @@ impl App {
             show_account_help: false,
             show_options_help: false,
             token_input: String::new(),
+            secret_manually_edited: false,
             search_query: String::new(),
             url_input: String::new(),
             results: SearchPayload::default(),
@@ -258,6 +264,7 @@ impl App {
             }
             Message::AppSecretChanged(v) => {
                 self.config.app_secret = v;
+                self.secret_manually_edited = true;
                 // The manual secret is tried first (it's the primary in `client()`),
                 // but keep any auto-detected candidates as fallback. Clearing them
                 // stranded the working secret whenever a manual edit didn't happen
@@ -275,6 +282,9 @@ impl App {
                 let mut secrets = creds.app_secrets.into_iter();
                 self.config.app_secret = secrets.next().unwrap_or_default();
                 self.config.app_secret_candidates = secrets.collect();
+                // Detected as a set — the working candidate may not be the one we
+                // picked as primary; let the signing check adopt it silently.
+                self.secret_manually_edited = false;
                 self.status = match self.config.save() {
                     Ok(()) => "Credentials detected and saved. You can now sign in.".into(),
                     Err(e) => format!("Credentials detected but could not save: {e}"),
@@ -301,8 +311,26 @@ impl App {
                     }
                 }
             }
-            Message::SigningChecked(Ok(())) => {
+            Message::SigningChecked(Ok(SigningCheck::Primary)) => {
                 self.status = "Signing OK — request signatures are being accepted.".into();
+                Task::none()
+            }
+            Message::SigningChecked(Ok(SigningCheck::Fallback { working_secret })) => {
+                if self.secret_manually_edited {
+                    // The user typed a secret that doesn't sign; only a saved
+                    // fallback does. Flag it rather than silently overriding.
+                    self.status =
+                        "Entered app_secret is invalid — a saved fallback works; update or \
+                         re-detect it."
+                            .into();
+                } else {
+                    // The primary came from auto-detect; adopt the candidate that
+                    // actually signs so the check reads cleanly from now on.
+                    self.config.promote_secret(&working_secret);
+                    let _ = self.config.save();
+                    self.status =
+                        "Signing OK — request signatures are being accepted.".into();
+                }
                 Task::none()
             }
             Message::SigningChecked(Err(e)) => {
@@ -1342,7 +1370,7 @@ async fn auto_detect_credentials() -> Result<AppCredentials, String> {
 }
 
 /// Probe whether request signing still works, independent of any real track.
-async fn check_signing_probe(client: QobuzClient) -> Result<(), String> {
+async fn check_signing_probe(client: QobuzClient) -> Result<SigningCheck, String> {
     client.check_signing().await.map_err(|e| e.to_string())
 }
 

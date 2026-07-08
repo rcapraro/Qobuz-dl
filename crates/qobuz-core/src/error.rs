@@ -13,13 +13,13 @@ pub enum Error {
     #[error("authentication failed: {0}")]
     Auth(String),
 
-    #[error("account is not eligible for streaming/download (free or restricted account)")]
+    #[error("account not eligible for downloads (free or restricted)")]
     IneligibleAccount,
 
-    #[error("request signature rejected — verify the app_secret")]
+    #[error("request signature rejected — check the app_secret")]
     InvalidSignature,
 
-    #[error("all {candidates} candidate app_secret(s) were rejected — the Qobuz signing formula may have changed (not your credentials). Try Auto-detect, or update the app.")]
+    #[error("all {candidates} app_secret(s) rejected — signing may have changed; try Auto-detect or update the app")]
     AllSignaturesRejected { candidates: usize },
 
     #[error("app credentials missing: {0}")]

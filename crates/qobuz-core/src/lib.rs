@@ -20,7 +20,7 @@ pub mod template;
 
 pub use bootstrap::{discover_app_credentials, AppCredentials};
 pub use catalog::Reference;
-pub use client::QobuzClient;
+pub use client::{QobuzClient, SigningCheck};
 pub use config::Config;
 pub use download::fetch_bytes;
 pub use engine::{download_all, download_job, resolve, Job, JobEvent};

@@ -12,6 +12,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const API_BASE: &str = "https://www.qobuz.com/api.json/0.2/";
 const PAGE_SIZE: u32 = 500;
 
+/// Outcome of [`QobuzClient::check_signing`]: which secret actually signed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SigningCheck {
+    /// The primary (entered) secret signs successfully.
+    Primary,
+    /// The primary secret was rejected, but a saved candidate signs. Carries the
+    /// working candidate so callers can promote it to the primary.
+    Fallback { working_secret: String },
+}
+
 /// Credentials + HTTP client for talking to Qobuz.
 #[derive(Clone)]
 pub struct QobuzClient {
@@ -244,9 +254,35 @@ impl QobuzClient {
 
     // ---- Signed file URL ------------------------------------------------
 
+    /// Sign and issue a single `track/getFileUrl` request with one specific
+    /// secret. `Err(Error::InvalidSignature)` means that secret was rejected;
+    /// `Err(Error::NoFileUrl)` means the track just isn't fetchable.
+    async fn get_file_url_signed(
+        &self,
+        track_id: &str,
+        format_id: u32,
+        secret: &str,
+    ) -> Result<FileUrl> {
+        let ts = now_unix();
+        let sig = signature::get_file_url_sig(track_id, format_id, ts, secret);
+        let params = [
+            ("track_id", track_id.to_string()),
+            ("format_id", format_id.to_string()),
+            ("intent", "stream".to_string()),
+            ("request_ts", ts.to_string()),
+            ("request_sig", sig),
+        ];
+        let file: FileUrl = self.get("track/getFileUrl", &params).await?;
+        if file.url.is_none() {
+            return Err(Error::NoFileUrl);
+        }
+        Ok(file)
+    }
+
     /// Request a signed, temporary download URL for a track at the requested
     /// quality. The response reports the *actually delivered* quality, which may
-    /// be lower (graceful downgrade).
+    /// be lower (graceful downgrade). Tries each candidate secret, caching the
+    /// one that works; `AllSignaturesRejected` if every candidate is refused.
     pub async fn file_url(&self, track_id: &str, quality: Quality) -> Result<FileUrl> {
         if self.app_secrets.is_empty() {
             return Err(Error::MissingAppCredentials("app_secret"));
@@ -260,20 +296,11 @@ impl QobuzClient {
         let start = self.working_secret.lock().unwrap().unwrap_or(0) % n;
         for k in 0..n {
             let idx = (start + k) % n;
-            let ts = now_unix();
-            let sig = signature::get_file_url_sig(track_id, format_id, ts, &self.app_secrets[idx]);
-            let params = [
-                ("track_id", track_id.to_string()),
-                ("format_id", format_id.to_string()),
-                ("intent", "stream".to_string()),
-                ("request_ts", ts.to_string()),
-                ("request_sig", sig),
-            ];
-            match self.get::<FileUrl>("track/getFileUrl", &params).await {
+            match self
+                .get_file_url_signed(track_id, format_id, &self.app_secrets[idx])
+                .await
+            {
                 Ok(file) => {
-                    if file.url.is_none() {
-                        return Err(Error::NoFileUrl);
-                    }
                     *self.working_secret.lock().unwrap() = Some(idx);
                     return Ok(file);
                 }
@@ -301,18 +328,38 @@ impl QobuzClient {
             .and_then(|i| self.app_secrets.get(i).cloned())
     }
 
-    /// Proactively check that request signing still works, end-to-end. A signed
-    /// request can only be *accepted* for a real track, so this looks up a
-    /// currently-valid track via the unsigned `search` endpoint, then signs a
-    /// `track/getFileUrl` for it and requires success. Only a genuine signed
-    /// request that returns a URL reports `Ok`; any failure — a rejected
-    /// signature (formula drift or wrong secret), a bad `app_id`/token, or an
-    /// ineligible account — is surfaced as the underlying error.
-    ///
-    /// A few results are tried so an occasional non-streamable hit
-    /// (`NoFileUrl`/404) doesn't cause a false negative; every other error is a
-    /// definitive failure and returned immediately.
-    pub async fn check_signing(&self) -> Result<()> {
+    /// Whether `secret`'s signature is accepted by `track/getFileUrl`. The API
+    /// validates the signature before returning a URL, so an accepted signature
+    /// yields either a URL (`Ok`) or "no file" for a non-streamable track
+    /// (`NoFileUrl`) — both mean the secret is good. Only `InvalidSignature`
+    /// means it is bad. A verdict is per-secret, not per-track, so the first
+    /// non-404 response settles it; stale tracks (404) are skipped.
+    async fn secret_signs(&self, track_ids: &[i64], format_id: u32, secret: &str) -> Result<bool> {
+        for id in track_ids {
+            match self.get_file_url_signed(&id.to_string(), format_id, secret).await {
+                Ok(_) | Err(Error::NoFileUrl) => return Ok(true),
+                Err(Error::InvalidSignature) => return Ok(false),
+                // Stale track ID — try the next one for a verdict.
+                Err(Error::Http { status: 404, .. }) => continue,
+                // Bad app_id/token, ineligible account, network: report it.
+                Err(e) => return Err(e),
+            }
+        }
+        // Every track 404'd — no verdict possible.
+        Err(Error::NoFileUrl)
+    }
+
+    /// Check request signing end-to-end, validating the *entered* (primary)
+    /// secret specifically. Looks up real tracks via the unsigned `search`, then
+    /// signs `track/getFileUrl`: if the primary secret signs, returns
+    /// `SigningCheck::Primary`; if only a saved candidate signs, returns
+    /// `SigningCheck::Fallback` with that secret (so the caller can adopt it).
+    /// `AllSignaturesRejected` if none sign (formula drift or wrong secret); a
+    /// bad `app_id`/token or ineligible account surfaces as its own error.
+    pub async fn check_signing(&self) -> Result<SigningCheck> {
+        if self.app_secrets.is_empty() {
+            return Err(Error::MissingAppCredentials("app_secret"));
+        }
         let results = self.search("music", 5).await?;
         let track_ids: Vec<i64> = results
             .tracks
@@ -321,18 +368,23 @@ impl QobuzClient {
         if track_ids.is_empty() {
             return Err(Error::NoFileUrl);
         }
-        let mut last_err = Error::NoFileUrl;
-        for id in track_ids {
-            match self.file_url(&id.to_string(), Quality::default()).await {
-                Ok(_) => return Ok(()),
-                // Track-specific: this track just isn't fetchable — try another.
-                Err(e @ (Error::NoFileUrl | Error::Http { status: 404, .. })) => last_err = e,
-                // Signature rejected, bad app_id/token, ineligible, network:
-                // a real signing/credentials failure — report it.
-                Err(e) => return Err(e),
+        let format_id = Quality::default().format_id();
+
+        // The entered (primary) secret first.
+        if self.secret_signs(&track_ids, format_id, &self.app_secrets[0]).await? {
+            return Ok(SigningCheck::Primary);
+        }
+        // Entered secret rejected — does a saved candidate sign?
+        for secret in &self.app_secrets[1..] {
+            if self.secret_signs(&track_ids, format_id, secret).await? {
+                return Ok(SigningCheck::Fallback {
+                    working_secret: secret.clone(),
+                });
             }
         }
-        Err(last_err)
+        Err(Error::AllSignaturesRejected {
+            candidates: self.app_secrets.len(),
+        })
     }
 
     /// Shared HTTP client (for streaming downloads of already-signed URLs).
