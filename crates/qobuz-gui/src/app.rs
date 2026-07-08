@@ -134,6 +134,8 @@ enum Message {
     AppSecretChanged(String),
     AutoDetectCredentials,
     CredentialsDetected(Result<AppCredentials, String>),
+    CheckSigning,
+    SigningChecked(Result<(), String>),
     FolderFormatChanged(String),
     TrackFormatChanged(String),
     ConcurrencyChanged(usize),
@@ -161,7 +163,9 @@ enum Message {
     RetryTrack(i64),
     RetryFailed,
     Download(JobEvent),
-    DownloadsFinished,
+    /// Carries the app secret that actually signed during the batch, if any, so
+    /// it can be promoted to the primary secret and persisted.
+    DownloadsFinished(Option<String>),
 }
 
 impl App {
@@ -254,8 +258,10 @@ impl App {
             }
             Message::AppSecretChanged(v) => {
                 self.config.app_secret = v;
-                // A manually entered secret supersedes any auto-detected candidates.
-                self.config.app_secret_candidates.clear();
+                // The manual secret is tried first (it's the primary in `client()`),
+                // but keep any auto-detected candidates as fallback. Clearing them
+                // stranded the working secret whenever a manual edit didn't happen
+                // to match the actual signer — recoverable only by re-detecting.
                 Task::none()
             }
             Message::AutoDetectCredentials => {
@@ -277,6 +283,30 @@ impl App {
             }
             Message::CredentialsDetected(Err(e)) => {
                 self.status = format!("Auto-detect failed: {e}. Enter credentials manually.");
+                Task::none()
+            }
+            Message::CheckSigning => {
+                if !self.signed_in {
+                    self.status = "Sign in before checking signing.".into();
+                    return Task::none();
+                }
+                match self.client() {
+                    Ok(client) => {
+                        self.status = "Checking request signing…".into();
+                        Task::perform(check_signing_probe(client), Message::SigningChecked)
+                    }
+                    Err(e) => {
+                        self.status = e;
+                        Task::none()
+                    }
+                }
+            }
+            Message::SigningChecked(Ok(())) => {
+                self.status = "Signing OK — request signatures are being accepted.".into();
+                Task::none()
+            }
+            Message::SigningChecked(Err(e)) => {
+                self.status = format!("Signing check failed: {e}");
                 Task::none()
             }
             Message::FolderFormatChanged(v) => {
@@ -487,8 +517,16 @@ impl App {
                 self.apply_event(ev);
                 Task::none()
             }
-            Message::DownloadsFinished => {
+            Message::DownloadsFinished(working_secret) => {
                 self.downloading = false;
+                // Persist the secret that actually signed so the next session
+                // starts from the known-good one instead of re-probing.
+                if let Some(secret) = working_secret {
+                    if secret != self.config.app_secret {
+                        self.config.promote_secret(&secret);
+                        let _ = self.config.save();
+                    }
+                }
                 let errors = self
                     .queue
                     .iter()
@@ -548,6 +586,10 @@ impl App {
 
         let stream = iced::stream::channel(256, move |mut output| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<JobEvent>(256);
+            // The engine clones the client internally; a retained clone shares
+            // the `working_secret` cache, so we can read which secret signed
+            // once the batch completes.
+            let probe = client.clone();
             let engine = engine::download_all(client, config, jobs, tx);
             let drain = async {
                 while let Some(ev) = rx.recv().await {
@@ -555,7 +597,9 @@ impl App {
                 }
             };
             future::join(engine, drain).await;
-            let _ = output.send(Message::DownloadsFinished).await;
+            let _ = output
+                .send(Message::DownloadsFinished(probe.working_secret()))
+                .await;
         });
         Task::run(stream, |m| m)
     }
@@ -682,6 +726,9 @@ impl App {
             creds_fields,
             row![
                 action_button("Auto-detect", Message::AutoDetectCredentials),
+                // Wider label than the fixed button width; size to content so it
+                // isn't clipped to "Check".
+                action_button("Check signing", Message::CheckSigning).width(Length::Shrink),
                 text("Fetch app_id and app_secret from the Qobuz web player.").size(style::TEXT_SM),
             ]
             .spacing(style::SPACE_SM)
@@ -1292,6 +1339,11 @@ async fn auto_detect_credentials() -> Result<AppCredentials, String> {
     qobuz_core::discover_app_credentials()
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Probe whether request signing still works, independent of any real track.
+async fn check_signing_probe(client: QobuzClient) -> Result<(), String> {
+    client.check_signing().await.map_err(|e| e.to_string())
 }
 
 /// Validate a pasted `user_auth_token` and return it on success.

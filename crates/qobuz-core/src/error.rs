@@ -19,6 +19,9 @@ pub enum Error {
     #[error("request signature rejected — verify the app_secret")]
     InvalidSignature,
 
+    #[error("all {candidates} candidate app_secret(s) were rejected — the Qobuz signing formula may have changed (not your credentials). Try Auto-detect, or update the app.")]
+    AllSignaturesRejected { candidates: usize },
+
     #[error("app credentials missing: {0}")]
     MissingAppCredentials(&'static str),
 
@@ -96,6 +99,7 @@ mod tests {
         assert!(!Error::Auth("nope".into()).is_transient());
         assert!(!Error::NoFileUrl.is_transient());
         assert!(!Error::InvalidSignature.is_transient());
+        assert!(!Error::AllSignaturesRejected { candidates: 3 }.is_transient());
         assert!(!Error::Http {
             status: 404,
             message: "missing".into()

@@ -282,8 +282,57 @@ impl QobuzClient {
                 Err(e) => return Err(e),
             }
         }
-        // Every candidate's signature was rejected.
-        Err(Error::InvalidSignature)
+        // Every candidate's signature was rejected. That is signing drift (the
+        // formula moved) or genuinely wrong secrets — not "try one more secret".
+        tracing::warn!(
+            candidates = n,
+            "all app_secret candidates rejected — possible signing-formula drift"
+        );
+        Err(Error::AllSignaturesRejected { candidates: n })
+    }
+
+    /// The app secret that last signed successfully in this session, if any.
+    /// Callers can persist it so a future session starts from the known-good
+    /// secret instead of re-probing every candidate.
+    pub fn working_secret(&self) -> Option<String> {
+        self.working_secret
+            .lock()
+            .unwrap()
+            .and_then(|i| self.app_secrets.get(i).cloned())
+    }
+
+    /// Proactively check that request signing still works, end-to-end. A signed
+    /// request can only be *accepted* for a real track, so this looks up a
+    /// currently-valid track via the unsigned `search` endpoint, then signs a
+    /// `track/getFileUrl` for it and requires success. Only a genuine signed
+    /// request that returns a URL reports `Ok`; any failure — a rejected
+    /// signature (formula drift or wrong secret), a bad `app_id`/token, or an
+    /// ineligible account — is surfaced as the underlying error.
+    ///
+    /// A few results are tried so an occasional non-streamable hit
+    /// (`NoFileUrl`/404) doesn't cause a false negative; every other error is a
+    /// definitive failure and returned immediately.
+    pub async fn check_signing(&self) -> Result<()> {
+        let results = self.search("music", 5).await?;
+        let track_ids: Vec<i64> = results
+            .tracks
+            .map(|tl| tl.items.into_iter().map(|t| t.id).collect())
+            .unwrap_or_default();
+        if track_ids.is_empty() {
+            return Err(Error::NoFileUrl);
+        }
+        let mut last_err = Error::NoFileUrl;
+        for id in track_ids {
+            match self.file_url(&id.to_string(), Quality::default()).await {
+                Ok(_) => return Ok(()),
+                // Track-specific: this track just isn't fetchable — try another.
+                Err(e @ (Error::NoFileUrl | Error::Http { status: 404, .. })) => last_err = e,
+                // Signature rejected, bad app_id/token, ineligible, network:
+                // a real signing/credentials failure — report it.
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_err)
     }
 
     /// Shared HTTP client (for streaming downloads of already-signed URLs).

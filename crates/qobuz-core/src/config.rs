@@ -99,6 +99,26 @@ impl Config {
                     .iter()
                     .any(|s| !s.trim().is_empty()))
     }
+
+    /// Make `secret` the primary `app_secret`, demoting the previous primary
+    /// into the candidate list so signing can still fall back to it. Candidates
+    /// are deduplicated and empties dropped. No-op if `secret` is blank or is
+    /// already the primary secret.
+    pub fn promote_secret(&mut self, secret: &str) {
+        if secret.trim().is_empty() || self.app_secret == secret {
+            return;
+        }
+        let old = std::mem::replace(&mut self.app_secret, secret.to_string());
+        let primary = self.app_secret.clone();
+        let existing = std::mem::take(&mut self.app_secret_candidates);
+        let mut rebuilt = Vec::new();
+        for s in std::iter::once(old).chain(existing) {
+            if !s.trim().is_empty() && s != primary && !rebuilt.contains(&s) {
+                rebuilt.push(s);
+            }
+        }
+        self.app_secret_candidates = rebuilt;
+    }
 }
 
 fn default_download_dir() -> PathBuf {
@@ -150,5 +170,29 @@ mod tests {
         let c: Config = serde_json::from_str(json).unwrap();
         assert_eq!(c.app_id, "abc");
         assert!(c.dark_mode);
+    }
+
+    #[test]
+    fn promote_secret_moves_working_to_primary_and_dedups() {
+        let mut c = Config {
+            app_secret: "old".into(),
+            app_secret_candidates: vec!["b".into(), "c".into(), "old".into()],
+            ..Config::default()
+        };
+        c.promote_secret("c");
+        assert_eq!(c.app_secret, "c");
+        // Old primary retained; promoted secret and duplicates removed.
+        assert_eq!(
+            c.app_secret_candidates,
+            vec!["old".to_string(), "b".to_string()]
+        );
+
+        // Already primary -> no-op.
+        c.promote_secret("c");
+        assert_eq!(c.app_secret, "c");
+        assert_eq!(
+            c.app_secret_candidates,
+            vec!["old".to_string(), "b".to_string()]
+        );
     }
 }
