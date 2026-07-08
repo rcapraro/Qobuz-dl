@@ -78,10 +78,10 @@ pub fn secondary_button<'a, M: Clone + 'a>(label: &'a str, msg: M) -> Button<'a,
 }
 
 /// A compact round "?" help toggle sized to sit at the right of a card header.
-/// Shows "✕" while its help panel is open. Styled to read on the accent header:
+/// Shows "×" while its help panel is open. Styled to read on the accent header:
 /// an `on_accent` outline that fills on hover.
 pub fn help_button<'a, M: Clone + 'a>(shown: bool, msg: M) -> Button<'a, M> {
-    button(text(if shown { "✕" } else { "?" }).center().size(TEXT_BODY))
+    button(text(if shown { "×" } else { "?" }).center().size(TEXT_BODY))
         .width(Length::Fixed(26.0))
         .height(Length::Fixed(26.0))
         .padding(0)

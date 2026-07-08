@@ -35,6 +35,12 @@ pub async fn stream_to_file(
     dest: &Path,
     progress: Option<&mpsc::Sender<Progress>>,
 ) -> Result<()> {
+    // Idempotency: if the destination already exists, the track was downloaded
+    // on a previous run — don't fetch it again.
+    if tokio::fs::try_exists(dest).await.unwrap_or(false) {
+        return Ok(());
+    }
+
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -42,7 +48,9 @@ pub async fn stream_to_file(
     let resp = http.get(url).send().await?;
     let status = resp.status();
     if status.as_u16() == 429 {
-        return Err(Error::RateLimited);
+        return Err(Error::RateLimited {
+            retry_after: retry_after_from(resp.headers()),
+        });
     }
     if !status.is_success() {
         return Err(Error::Http {
@@ -53,9 +61,30 @@ pub async fn stream_to_file(
 
     let total = resp.content_length();
     // Write to a temp file, then rename on success so partial files aren't left
-    // looking complete.
+    // looking complete. On any error the partial file is removed so a retry
+    // starts clean and no orphaned `.part` is left behind.
     let tmp = dest.with_extension("part");
-    let mut file = tokio::fs::File::create(&tmp).await?;
+    match stream_to_tmp(resp, &tmp, total, progress).await {
+        Ok(()) => {
+            tokio::fs::rename(&tmp, dest).await?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            Err(e)
+        }
+    }
+}
+
+/// Stream a response body into `tmp`, emitting progress. Split out so the caller
+/// can clean up the partial file on any failure.
+async fn stream_to_tmp(
+    resp: reqwest::Response,
+    tmp: &Path,
+    total: Option<u64>,
+    progress: Option<&mpsc::Sender<Progress>>,
+) -> Result<()> {
+    let mut file = tokio::fs::File::create(tmp).await?;
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();
 
@@ -68,9 +97,19 @@ pub async fn stream_to_file(
         }
     }
     file.flush().await?;
-    drop(file);
-    tokio::fs::rename(&tmp, dest).await?;
     Ok(())
+}
+
+/// Parse a `Retry-After` header (delta-seconds form) into a duration.
+fn retry_after_from(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 /// Run an async operation with exponential-backoff retry on transient errors
@@ -85,19 +124,40 @@ where
         attempt += 1;
         match op().await {
             Ok(v) => return Ok(v),
-            Err(e) if attempt >= max_attempts || !is_transient(&e) => return Err(e),
-            Err(_) => {
-                // 0.5s, 1s, 2s, 4s ...
-                let backoff = Duration::from_millis(500u64 << (attempt - 1).min(5));
-                tokio::time::sleep(backoff).await;
+            Err(e) if attempt >= max_attempts || !e.is_transient() => return Err(e),
+            Err(e) => {
+                tokio::time::sleep(backoff_delay(attempt, &e)).await;
             }
         }
     }
 }
 
-fn is_transient(e: &Error) -> bool {
-    matches!(e, Error::RateLimited | Error::Network(_))
-        || matches!(e, Error::Http { status, .. } if *status >= 500)
+/// Delay before the next retry: honor a server-supplied `Retry-After` when the
+/// API provided one; otherwise use jittered exponential backoff
+/// (~0.5s, 1s, 2s, 4s … capped, plus up to 50% random jitter).
+fn backoff_delay(attempt: u32, err: &Error) -> Duration {
+    if let Error::RateLimited {
+        retry_after: Some(d),
+    } = err
+    {
+        return *d;
+    }
+    let base_ms = 500u64 << (attempt - 1).min(5);
+    Duration::from_millis(base_ms + jitter_millis(base_ms / 2))
+}
+
+/// A cheap dependency-free pseudo-random value in `0..=max`, seeded from the
+/// system clock. Precision here is irrelevant — it only spreads out retries to
+/// avoid a thundering herd.
+fn jitter_millis(max: u64) -> u64 {
+    if max == 0 {
+        return 0;
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    nanos % (max + 1)
 }
 
 #[cfg(test)]
@@ -125,7 +185,7 @@ mod tests {
             let n = calls;
             async move {
                 if n < 3 {
-                    Err(Error::RateLimited)
+                    Err(Error::RateLimited { retry_after: None })
                 } else {
                     Ok(n)
                 }
@@ -133,5 +193,30 @@ mod tests {
         })
         .await;
         assert_eq!(r.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn skips_when_destination_exists() {
+        let dir = std::env::temp_dir().join("qobuz-dl-test-skip");
+        let _ = tokio::fs::create_dir_all(&dir).await;
+        let dest = dir.join("already-there.flac");
+        tokio::fs::write(&dest, b"existing").await.unwrap();
+
+        let http = reqwest::Client::new();
+        // URL is never contacted because the destination already exists.
+        let r = stream_to_file(&http, "http://127.0.0.1:0/nope", &dest, None).await;
+        assert!(r.is_ok());
+        // The pre-existing file is untouched.
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"existing");
+
+        let _ = tokio::fs::remove_file(&dest).await;
+    }
+
+    #[test]
+    fn honors_retry_after_over_backoff() {
+        let err = Error::RateLimited {
+            retry_after: Some(Duration::from_secs(7)),
+        };
+        assert_eq!(backoff_delay(1, &err), Duration::from_secs(7));
     }
 }

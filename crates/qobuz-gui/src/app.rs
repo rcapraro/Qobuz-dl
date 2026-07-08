@@ -6,7 +6,7 @@ use crate::style::{
 use iced::font;
 use iced::futures::{future, SinkExt};
 use iced::widget::{
-    checkbox, column, container, image, pick_list, progress_bar, row, scrollable, text,
+    button, checkbox, column, container, image, pick_list, progress_bar, row, scrollable, text,
 };
 use iced::{Element, Font, Length, Task, Theme};
 use iced_aw::widget::{
@@ -35,6 +35,11 @@ pub fn run() -> iced::Result {
         .theme(App::theme)
         // iced_aw's NumberInput draws its spinner carets from this icon font.
         .font(iced_aw::iced_fonts::REQUIRED_FONT_BYTES)
+        // Bundle Inter and make it the default so glyphs (dots, arrows, ×, ☀)
+        // render identically on every OS instead of relying on font fallback.
+        .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Inter-Bold.ttf").as_slice())
+        .default_font(iced::Font::with_name("Inter"))
         .window(window)
         .run_with(App::new)
 }
@@ -49,6 +54,9 @@ enum Screen {
 /// A single row in the download queue.
 #[derive(Debug, Clone)]
 struct QueueItem {
+    track_id: i64,
+    /// The resolved job, retained so a failed track can be relaunched.
+    job: Job,
     title: String,
     status: ItemStatus,
     downloaded: u64,
@@ -98,7 +106,6 @@ pub struct App {
     thumbnails: HashMap<String, iced::widget::image::Handle>,
 
     // Queue.
-    pending_jobs: Vec<Job>,
     queue: Vec<QueueItem>,
     index: HashMap<i64, usize>,
     downloading: bool,
@@ -151,6 +158,8 @@ enum Message {
 
     // Downloads.
     StartDownloads,
+    RetryTrack(i64),
+    RetryFailed,
     Download(JobEvent),
     DownloadsFinished,
 }
@@ -179,7 +188,6 @@ impl App {
             url_input: String::new(),
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
-            pending_jobs: Vec::new(),
             queue: Vec::new(),
             index: HashMap::new(),
             downloading: false,
@@ -419,21 +427,23 @@ impl App {
                 Task::perform(resolve(client, reference), Message::Resolved)
             }
             Message::Resolved(Ok(jobs)) => {
-                let added = jobs.len();
-                for job in &jobs {
+                let mut added = 0;
+                for job in jobs {
                     let track_id = job.track.id;
                     if self.index.contains_key(&track_id) {
                         continue;
                     }
                     self.index.insert(track_id, self.queue.len());
                     self.queue.push(QueueItem {
+                        track_id,
                         title: format!("{} — {}", job.track.artist_name(), job.track.title),
+                        job,
                         status: ItemStatus::Queued,
                         downloaded: 0,
                         total: None,
                     });
+                    added += 1;
                 }
-                self.pending_jobs.extend(jobs);
                 self.status = format!("Added {added} track(s) to the queue.");
                 self.screen = Screen::Queue;
                 Task::none()
@@ -445,41 +455,33 @@ impl App {
 
             // ---- Downloads ----
             Message::StartDownloads => {
-                if self.downloading {
-                    return Task::none();
-                }
-                if !self.signed_in {
-                    self.status = "Sign in before downloading.".into();
-                    return Task::none();
-                }
-                if self.pending_jobs.is_empty() {
+                // Download everything not yet done (fresh + previously errored).
+                let jobs =
+                    self.jobs_with(|s| matches!(s, ItemStatus::Queued | ItemStatus::Error(_)));
+                if jobs.is_empty() {
                     self.status = "Nothing queued to download.".into();
                     return Task::none();
                 }
-                let client = match self.client() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        self.status = e;
-                        return Task::none();
-                    }
-                };
-                let jobs = std::mem::take(&mut self.pending_jobs);
-                let config = self.config.clone();
-                self.downloading = true;
-                self.status = format!("Downloading {} track(s)…", jobs.len());
-
-                let stream = iced::stream::channel(256, move |mut output| async move {
-                    let (tx, mut rx) = tokio::sync::mpsc::channel::<JobEvent>(256);
-                    let engine = engine::download_all(client, config, jobs, tx);
-                    let drain = async {
-                        while let Some(ev) = rx.recv().await {
-                            let _ = output.send(Message::Download(ev)).await;
-                        }
-                    };
-                    future::join(engine, drain).await;
-                    let _ = output.send(Message::DownloadsFinished).await;
-                });
-                Task::run(stream, |m| m)
+                self.spawn_downloads(jobs)
+            }
+            Message::RetryTrack(track_id) => {
+                let job = self
+                    .index
+                    .get(&track_id)
+                    .and_then(|&i| self.queue.get(i))
+                    .filter(|it| matches!(it.status, ItemStatus::Error(_)))
+                    .map(|it| it.job.clone());
+                match job {
+                    Some(job) => self.spawn_downloads(vec![job]),
+                    None => Task::none(),
+                }
+            }
+            Message::RetryFailed => {
+                let jobs = self.jobs_with(|s| matches!(s, ItemStatus::Error(_)));
+                if jobs.is_empty() {
+                    return Task::none();
+                }
+                self.spawn_downloads(jobs)
             }
             Message::Download(ev) => {
                 self.apply_event(ev);
@@ -500,6 +502,62 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// Clone the jobs of every queue row whose status matches `pred`.
+    fn jobs_with(&self, pred: impl Fn(&ItemStatus) -> bool) -> Vec<Job> {
+        self.queue
+            .iter()
+            .filter(|it| pred(&it.status))
+            .map(|it| it.job.clone())
+            .collect()
+    }
+
+    /// Launch a download batch for `jobs`, bridging core `JobEvent`s into
+    /// `Message::Download`. Resets the targeted rows to queued once the batch
+    /// actually starts, so a relaunched track's error badge clears.
+    fn spawn_downloads(&mut self, jobs: Vec<Job>) -> Task<Message> {
+        if jobs.is_empty() || self.downloading {
+            return Task::none();
+        }
+        if !self.signed_in {
+            self.status = "Sign in before downloading.".into();
+            return Task::none();
+        }
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(e) => {
+                self.status = e;
+                return Task::none();
+            }
+        };
+        for job in &jobs {
+            if let Some(it) = self
+                .index
+                .get(&job.track.id)
+                .and_then(|&i| self.queue.get_mut(i))
+            {
+                it.status = ItemStatus::Queued;
+                it.downloaded = 0;
+                it.total = None;
+            }
+        }
+        let config = self.config.clone();
+        self.downloading = true;
+        self.status = format!("Downloading {} track(s)…", jobs.len());
+
+        let stream = iced::stream::channel(256, move |mut output| async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<JobEvent>(256);
+            let engine = engine::download_all(client, config, jobs, tx);
+            let drain = async {
+                while let Some(ev) = rx.recv().await {
+                    let _ = output.send(Message::Download(ev)).await;
+                }
+            };
+            future::join(engine, drain).await;
+            let _ = output.send(Message::DownloadsFinished).await;
+        });
+        Task::run(stream, |m| m)
     }
 
     fn apply_event(&mut self, ev: JobEvent) {
@@ -558,7 +616,7 @@ impl App {
                 if self.dark_mode {
                     "☀  Light"
                 } else {
-                    "🌙  Dark"
+                    "★  Dark"
                 },
                 Message::ToggleTheme,
             ),
@@ -850,21 +908,41 @@ impl App {
             done as f32 / self.queue.len() as f32
         };
 
-        let header = row![
-            text(format!("{done}/{} complete", self.queue.len())).width(Length::Fill),
+        let failed = self
+            .queue
+            .iter()
+            .filter(|it| matches!(it.status, ItemStatus::Error(_)))
+            .count();
+
+        let mut header =
+            row![text(format!("{done}/{} complete", self.queue.len())).width(Length::Fill),]
+                .spacing(style::SPACE_SM)
+                .align_y(iced::Alignment::Center);
+
+        if failed > 0 && !self.downloading {
+            // Built manually (not `secondary_button`) so the label can be an
+            // owned String rather than a borrowed `&str`.
+            header = header.push(
+                button(text(format!("Retry failed ({failed})")).center())
+                    .padding([style::SPACE_XS, style::SPACE_MD])
+                    .height(Length::Fixed(style::CONTROL_HEIGHT))
+                    .style(button::secondary)
+                    .on_press(Message::RetryFailed),
+            );
+        }
+
+        header = header.push(
             styled_button(if self.downloading {
                 "Downloading…"
             } else {
                 "Start downloads"
             })
             .on_press_maybe((!self.downloading).then_some(Message::StartDownloads)),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
+        );
 
         let mut list = column![].spacing(style::SPACE_SM);
         for it in &self.queue {
-            list = list.push(queue_row(it));
+            list = list.push(queue_row(it, self.downloading));
         }
 
         column![
@@ -961,6 +1039,17 @@ fn help_term(token: &'static str, desc: &'static str) -> Element<'static, Messag
     .into()
 }
 
+/// DevTools shortcut hint, formatted for the host OS. The `⌥⌘` glyphs are only
+/// emitted on macOS (where the system font renders them); other platforms get
+/// pure-ASCII `Ctrl+Shift+I`.
+fn devtools_shortcut() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "F12 / ⌥⌘I"
+    } else {
+        "F12 / Ctrl+Shift+I"
+    }
+}
+
 /// Help for the API credentials card: what the fields are and how to obtain them.
 fn credentials_help() -> Element<'static, Message> {
     column![
@@ -973,7 +1062,8 @@ fn credentials_help() -> Element<'static, Message> {
             .size(style::TEXT_SM),
         text("Manual fallback (if auto-detect fails)").size(style::TEXT_BODY),
         text("1. Open play.qobuz.com in a browser and sign in.").size(style::TEXT_SM),
-        text("2. Open the browser developer tools (F12 / ⌥⌘I) → Network tab.").size(style::TEXT_SM),
+        text(format!("2. Open the browser developer tools ({}) → Network tab.", devtools_shortcut()))
+            .size(style::TEXT_SM),
         text("3. Reload; in any request to the Qobuz API, read the request header \"x-app-id\" — that is your app_id.")
             .size(style::TEXT_SM),
         text("4. In the Sources/Debugger tab, open the player's main JavaScript bundle and search for the app secret (a long hex string used for signing); copy it as app_secret.")
@@ -993,7 +1083,8 @@ fn account_help() -> Element<'static, Message> {
             .size(style::TEXT_SM),
         text("How to get your token from the Qobuz web player:").size(style::TEXT_SM),
         text("1. Open play.qobuz.com in a browser and sign in normally.").size(style::TEXT_SM),
-        text("2. Open the browser developer tools (F12 / ⌥⌘I) → Network tab.").size(style::TEXT_SM),
+        text(format!("2. Open the browser developer tools ({}) → Network tab.", devtools_shortcut()))
+            .size(style::TEXT_SM),
         text("3. Reload the page, then click any request to the Qobuz API and read the request header \"x-user-auth-token\".")
             .size(style::TEXT_SM),
         text("4. Copy that value, paste it above, and press Sign in.").size(style::TEXT_SM),
@@ -1139,7 +1230,7 @@ fn album_result_row<'a>(
     .into()
 }
 
-fn queue_row(it: &QueueItem) -> Element<'_, Message> {
+fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
     let (status_text, fraction): (String, f32) = match &it.status {
         ItemStatus::Queued => ("queued".into(), 0.0),
         ItemStatus::Downloading => {
@@ -1155,21 +1246,32 @@ fn queue_row(it: &QueueItem) -> Element<'_, Message> {
         ItemStatus::Error(e) => (format!("error: {e}"), 0.0),
     };
 
-    column![
-        row![text(&it.title).width(Length::Fill), {
-            let pick = badge_palette(&it.status);
-            // Monospace so the padded percentage keeps a constant width (the
-            // default font's digits vary in width and shift the badge).
-            Badge::new(text(status_text).size(style::TEXT_SM).font(Font::MONOSPACE)).style(
-                move |theme, _status| {
-                    let a = style::accents(theme);
-                    let (bg, fg) = pick(&a);
-                    style::badge(bg, fg)
-                },
-            )
-        },]
+    let pick = badge_palette(&it.status);
+    // Monospace so the padded percentage keeps a constant width (the default
+    // font's digits vary in width and shift the badge).
+    let badge = Badge::new(text(status_text).size(style::TEXT_SM).font(Font::MONOSPACE)).style(
+        move |theme, _status| {
+            let a = style::accents(theme);
+            let (bg, fg) = pick(&a);
+            style::badge(bg, fg)
+        },
+    );
+
+    let mut top = row![text(&it.title).width(Length::Fill), badge]
         .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center),
+        .align_y(iced::Alignment::Center);
+
+    // A failed track can be relaunched (disabled while a batch is running).
+    if matches!(it.status, ItemStatus::Error(_)) {
+        let retry = button(text("Retry").size(style::TEXT_SM))
+            .padding([style::SPACE_XS, style::SPACE_SM])
+            .style(button::secondary)
+            .on_press_maybe((!downloading).then_some(Message::RetryTrack(it.track_id)));
+        top = top.push(retry);
+    }
+
+    column![
+        top,
         progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
             .height(Length::Fixed(style::PROGRESS_HEIGHT)),
     ]

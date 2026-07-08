@@ -108,7 +108,13 @@ impl QobuzClient {
 
         let status = resp.status();
         if status.as_u16() == 429 {
-            return Err(Error::RateLimited);
+            let retry_after = resp
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .map(std::time::Duration::from_secs);
+            return Err(Error::RateLimited { retry_after });
         }
         let text = resp.text().await?;
         if !status.is_success() {

@@ -1,3 +1,4 @@
+use std::time::Duration;
 use thiserror::Error;
 
 /// Errors produced by the Qobuz core engine.
@@ -25,7 +26,10 @@ pub enum Error {
     CredentialDiscovery(String),
 
     #[error("rate limited by the Qobuz API")]
-    RateLimited,
+    RateLimited {
+        /// Server-advertised delay before retrying, from a `Retry-After` header.
+        retry_after: Option<Duration>,
+    },
 
     #[error("could not recognize input as a Qobuz URL or ID: {0}")]
     UnrecognizedInput(String),
@@ -49,6 +53,16 @@ pub enum Error {
     Config(String),
 }
 
+impl Error {
+    /// Whether this error is worth retrying: rate limiting, network failures
+    /// (including timeouts), and HTTP 5xx responses. All other errors are
+    /// treated as permanent.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Error::RateLimited { .. } | Error::Network(_))
+            || matches!(self, Error::Http { status, .. } if *status >= 500)
+    }
+}
+
 impl From<keyring::Error> for Error {
     fn from(e: keyring::Error) -> Self {
         Error::Keyring(e.to_string())
@@ -62,3 +76,30 @@ impl From<lofty::error::LoftyError> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_transient_errors() {
+        assert!(Error::RateLimited { retry_after: None }.is_transient());
+        assert!(Error::Http {
+            status: 503,
+            message: "boom".into()
+        }
+        .is_transient());
+    }
+
+    #[test]
+    fn classifies_permanent_errors() {
+        assert!(!Error::Auth("nope".into()).is_transient());
+        assert!(!Error::NoFileUrl.is_transient());
+        assert!(!Error::InvalidSignature.is_transient());
+        assert!(!Error::Http {
+            status: 404,
+            message: "missing".into()
+        }
+        .is_transient());
+    }
+}

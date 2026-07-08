@@ -131,38 +131,64 @@ pub async fn download_all(
 
         handles.push(tokio::spawn(async move {
             let _permit = permit_sem.acquire().await;
-            let track_id = job.track.id;
-            let _ = events
-                .send(JobEvent::Started {
-                    track_id,
-                    title: job.track.title.clone(),
-                })
-                .await;
-
-            match download_one(&client, &config, &job, &events, &cover_cache).await {
-                Ok((path, delivered)) => {
-                    let _ = events
-                        .send(JobEvent::Done {
-                            track_id,
-                            path,
-                            delivered,
-                        })
-                        .await;
-                }
-                Err(e) => {
-                    let _ = events
-                        .send(JobEvent::Failed {
-                            track_id,
-                            error: e.to_string(),
-                        })
-                        .await;
-                }
-            }
+            run_job(&client, &config, &job, &events, &cover_cache).await;
         }));
     }
 
     for h in handles {
         let _ = h.await;
+    }
+}
+
+/// Download a single job (fetch → stream → tag), emitting its lifecycle
+/// [`JobEvent`]s (`Started`, `Progress`, `Tagging`, then `Done` or `Failed`).
+/// A failure is reported via `JobEvent::Failed` rather than returned, matching
+/// the batch behavior. Useful for relaunching one failed track.
+pub async fn download_job(
+    client: &QobuzClient,
+    config: &Config,
+    job: &Job,
+    events: &mpsc::Sender<JobEvent>,
+) {
+    let cover_cache = Mutex::new(HashMap::new());
+    run_job(client, config, job, events, &cover_cache).await;
+}
+
+/// Shared per-job body used by both `download_all` (with a batch-wide cover
+/// cache) and `download_job` (with a private cache).
+async fn run_job(
+    client: &QobuzClient,
+    config: &Config,
+    job: &Job,
+    events: &mpsc::Sender<JobEvent>,
+    cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+) {
+    let track_id = job.track.id;
+    let _ = events
+        .send(JobEvent::Started {
+            track_id,
+            title: job.track.title.clone(),
+        })
+        .await;
+
+    match download_one(client, config, job, events, cover_cache).await {
+        Ok((path, delivered)) => {
+            let _ = events
+                .send(JobEvent::Done {
+                    track_id,
+                    path,
+                    delivered,
+                })
+                .await;
+        }
+        Err(e) => {
+            let _ = events
+                .send(JobEvent::Failed {
+                    track_id,
+                    error: e.to_string(),
+                })
+                .await;
+        }
     }
 }
 
@@ -175,25 +201,9 @@ async fn download_one(
 ) -> Result<(PathBuf, String)> {
     let track_id = job.track.id;
     let track_id_str = track_id.to_string();
+    let track_id_str = &track_id_str;
 
-    // 1. Request a fresh signed URL just-in-time (retry transient failures).
-    let file = download::with_retry(MAX_ATTEMPTS, || {
-        client.file_url(&track_id_str, config.quality)
-    })
-    .await?;
-    let url = file.url.clone().ok_or(Error::NoFileUrl)?;
-
-    // Determine actually delivered quality.
-    let delivered_quality = file
-        .format_id
-        .and_then(Quality::from_format_id)
-        .unwrap_or(config.quality);
-    let ext = delivered_quality.extension();
-
-    // 2. Build destination path from templates.
-    let dest = build_path(config, job, &file, ext);
-
-    // 3. Stream to disk with progress, retrying transient failures.
+    // Progress forwarder: translate byte progress into JobEvents.
     let (tx, mut rx) = mpsc::channel::<Progress>(32);
     let ev = events.clone();
     let forward = tokio::spawn(async move {
@@ -210,15 +220,23 @@ async fn download_one(
         }
     });
 
-    let http = client.http().clone();
-    let url_for_dl = url.clone();
-    let dest_for_dl = dest.clone();
-    download::with_retry(MAX_ATTEMPTS, || {
-        let http = http.clone();
-        let url = url_for_dl.clone();
-        let dest = dest_for_dl.clone();
+    // Fetch a fresh signed URL and stream to disk as one retryable unit, so a
+    // retry always re-signs rather than reusing a possibly-expired URL. The
+    // destination is derived from the *delivered* quality of each response.
+    let (file, dest, delivered_quality) = download::with_retry(MAX_ATTEMPTS, || {
         let tx = tx.clone();
-        async move { download::stream_to_file(&http, &url, &dest, Some(&tx)).await }
+        async move {
+            let file = client.file_url(track_id_str, config.quality).await?;
+            let url = file.url.clone().ok_or(Error::NoFileUrl)?;
+            let delivered_quality = file
+                .format_id
+                .and_then(Quality::from_format_id)
+                .unwrap_or(config.quality);
+            let ext = delivered_quality.extension();
+            let dest = build_path(config, job, &file, ext);
+            download::stream_to_file(client.http(), &url, &dest, Some(&tx)).await?;
+            Ok::<_, Error>((file, dest, delivered_quality))
+        }
     })
     .await?;
     drop(tx);

@@ -23,6 +23,6 @@ pub use catalog::Reference;
 pub use client::QobuzClient;
 pub use config::Config;
 pub use download::fetch_bytes;
-pub use engine::{download_all, resolve, Job, JobEvent};
+pub use engine::{download_all, download_job, resolve, Job, JobEvent};
 pub use error::{Error, Result};
 pub use quality::Quality;
