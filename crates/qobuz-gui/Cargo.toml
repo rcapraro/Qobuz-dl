@@ -24,6 +24,11 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Embeds assets/icon.ico into the Windows .exe (see build.rs). Windows-only so
+# it never enters the macOS/Linux build graph.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 # cargo-packager reads its config from here (the standalone Packager.toml is not
 # auto-detected in a workspace). Version/authors inherit from [package].
 [package.metadata.packager]
@@ -32,7 +37,7 @@ identifier = "com.qobuzdl.qobuz-dl"
 description = "Download Qobuz music with quality, cover-art, and tagging control"
 category = "Music"
 formats = ["dmg", "nsis", "deb", "appimage"]
-icons = ["assets/icon.png"]
+icons = ["assets/icon.ico", "assets/icon.icns", "assets/icon.png"]
 
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"
