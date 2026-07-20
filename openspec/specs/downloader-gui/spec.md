@@ -87,8 +87,9 @@ progress bars, and overall progress. When an item has failed, the system SHALL
 offer a way to relaunch that item's download without re-adding it, both as a
 per-item control and as a single action that retries all failed items. When an
 item is still queued, the system SHALL offer a per-item control to remove it
-from the queue. Retry and remove controls SHALL be available only when a
-download batch is not currently in progress.
+from the queue. When the queue is non-empty, the system SHALL offer a header
+control to clear the entire queue. Retry, remove, and clear controls SHALL be
+available only when a download batch is not currently in progress.
 
 #### Scenario: Live progress display
 - **WHEN** downloads are in progress
@@ -110,9 +111,13 @@ download batch is not currently in progress.
 - **WHEN** an item is in the queued state and no batch is currently downloading
 - **THEN** its row exposes a Remove control that, when activated, removes that item from the queue while leaving other items untouched
 
+#### Scenario: Clear the entire queue
+- **WHEN** the queue is non-empty and no batch is currently downloading
+- **THEN** the queue header exposes a "Clear queue" control that, when activated, removes all items from the queue
+
 #### Scenario: Remove disabled during download
 - **WHEN** a download batch is in progress
-- **THEN** the per-item Remove controls are disabled
+- **THEN** the per-item Remove controls and the "Clear queue" control are disabled
 
 #### Scenario: Retry disabled during download
 - **WHEN** a download batch is in progress

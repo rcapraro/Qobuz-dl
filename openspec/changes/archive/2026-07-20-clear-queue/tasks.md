@@ -11,4 +11,4 @@
 
 - [x] 3.1 `cargo fmt` and `cargo clippy --workspace --tests` clean.
 - [x] 3.2 `cargo build --workspace` clean.
-- [ ] 3.3 `cargo run -p qobuz-gui`: add several tracks, confirm a "Clear queue" control appears and empties the queue in one click, is hidden when the queue is empty, and is hidden/disabled while a batch is downloading.
+- [x] 3.3 `cargo run -p qobuz-gui`: add several tracks, confirm a "Clear queue" control appears and empties the queue in one click, is hidden when the queue is empty, and is hidden/disabled while a batch is downloading.
