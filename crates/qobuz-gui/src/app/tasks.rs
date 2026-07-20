@@ -1,7 +1,7 @@
 //! Async wrappers around `qobuz-core` calls, run via `Task::perform`. Each is a
 //! thin `map_err(|e| e.to_string())` boundary — no logic lives here.
 
-use super::{AlbumResult, SearchPayload};
+use super::{AlbumResult, SearchPayload, TrackResult};
 use qobuz_core::catalog::Reference;
 use qobuz_core::engine::{self, Job};
 use qobuz_core::{AppCredentials, QobuzClient, SigningCheck};
@@ -43,7 +43,9 @@ pub(super) async fn do_search(client: QobuzClient, query: String) -> Result<Sear
     let mut payload = SearchPayload::default();
     if let Some(list) = r.albums {
         for a in list.items {
-            let label = format!("{} — {}", a.artist_name(), a.title);
+            let hires = a.is_hires();
+            let title = a.title.clone();
+            let artist = a.artist_name().to_string();
             // Prefer a small image for the thumbnail to keep downloads cheap.
             let cover = a.image.as_ref().and_then(|i| {
                 i.small
@@ -53,20 +55,33 @@ pub(super) async fn do_search(client: QobuzClient, query: String) -> Result<Sear
             });
             payload.albums.push(AlbumResult {
                 id: a.id,
-                label,
+                title,
+                artist,
                 cover,
+                hires,
             });
         }
     }
     if let Some(list) = r.tracks {
         for t in list.items {
-            let label = format!("{} — {}", t.artist_name(), t.title);
-            payload.tracks.push((t.id.to_string(), label));
-        }
-    }
-    if let Some(list) = r.artists {
-        for a in list.items {
-            payload.artists.push((a.id.to_string(), a.name));
+            // Use the track's album cover as its preview thumbnail.
+            let cover = t
+                .album
+                .as_ref()
+                .and_then(|al| al.image.as_ref())
+                .and_then(|i| {
+                    i.small
+                        .clone()
+                        .or_else(|| i.thumbnail.clone())
+                        .or_else(|| i.large.clone())
+                });
+            payload.tracks.push(TrackResult {
+                id: t.id.to_string(),
+                title: t.title.clone(),
+                artist: t.artist_name().to_string(),
+                cover,
+                hires: t.is_hires(),
+            });
         }
     }
     Ok(payload)

@@ -38,6 +38,16 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
         );
     }
 
+    if !app.queue.is_empty() && !app.downloading {
+        header = header.push(
+            button(text("Clear queue").center())
+                .padding([style::SPACE_XS, style::SPACE_MD])
+                .height(Length::Fixed(style::CONTROL_HEIGHT))
+                .style(button::secondary)
+                .on_press(Message::ClearQueue),
+        );
+    }
+
     header = header.push(
         styled_button(if app.downloading {
             "Downloading…"
@@ -138,6 +148,16 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
         top = top.push(retry);
     }
 
+    // A still-queued track can be removed from the queue (disabled while a
+    // batch is running).
+    if matches!(it.status, ItemStatus::Queued) {
+        let remove = button(text("Remove").size(style::TEXT_SM))
+            .padding([style::SPACE_XS, style::SPACE_SM])
+            .style(button::secondary)
+            .on_press_maybe((!downloading).then_some(Message::DequeueTrack(it.track_id)));
+        top = top.push(remove);
+    }
+
     column![
         top,
         progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
@@ -165,6 +185,8 @@ mod tests {
             media_count: None,
             tracks: None,
             label: None,
+            hires: false,
+            hires_streamable: false,
         };
         let track = qobuz_core::models::Track {
             id: 1,
@@ -177,6 +199,8 @@ mod tests {
             parental_warning: None,
             duration: None,
             album: Some(album.clone()),
+            hires: false,
+            hires_streamable: false,
         };
         QueueItem {
             track_id: 1,

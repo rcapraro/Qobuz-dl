@@ -57,9 +57,19 @@ pub struct Album {
     pub tracks: Option<TrackList>,
     #[serde(default)]
     pub label: Option<Label>,
+    #[serde(default)]
+    pub hires: bool,
+    #[serde(default)]
+    pub hires_streamable: bool,
 }
 
 impl Album {
+    /// Whether this album is available in hi-res quality. Prefers the
+    /// streamable flag (what can actually be delivered), falling back to the
+    /// plain hi-res flag.
+    pub fn is_hires(&self) -> bool {
+        self.hires_streamable || self.hires
+    }
     pub fn year(&self) -> Option<&str> {
         self.release_date_original
             .as_deref()
@@ -108,9 +118,17 @@ pub struct Track {
     /// Present when the track is fetched standalone (`track/get`).
     #[serde(default)]
     pub album: Option<Album>,
+    #[serde(default)]
+    pub hires: bool,
+    #[serde(default)]
+    pub hires_streamable: bool,
 }
 
 impl Track {
+    /// Whether this track is available in hi-res quality (see [`Album::is_hires`]).
+    pub fn is_hires(&self) -> bool {
+        self.hires_streamable || self.hires
+    }
     pub fn artist_name(&self) -> &str {
         self.performer
             .as_ref()
@@ -233,5 +251,23 @@ mod tests {
             thumbnail: None,
         };
         assert_eq!(img.best(), Some("L"));
+    }
+
+    #[test]
+    fn hires_flags_parse_and_default() {
+        // Both flags present.
+        let json = r#"{"id":"1","title":"X","hires":true,"hires_streamable":true}"#;
+        let a: Album = serde_json::from_str(json).unwrap();
+        assert!(a.is_hires());
+
+        // Only the streamable flag set.
+        let json = r#"{"id":42,"title":"Song","hires_streamable":true}"#;
+        let t: Track = serde_json::from_str(json).unwrap();
+        assert!(t.is_hires());
+
+        // Neither flag present defaults to non-hi-res.
+        let json = r#"{"id":"2","title":"Y"}"#;
+        let a: Album = serde_json::from_str(json).unwrap();
+        assert!(!a.is_hires());
     }
 }

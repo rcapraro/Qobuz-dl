@@ -48,10 +48,13 @@ web player.
 ### Requirement: Search and add screen
 The system SHALL provide a screen to search the catalog and to paste a Qobuz
 URL/ID, and to add resulting albums/tracks/playlists to the download queue.
-Search results SHALL be grouped by type (albums, tracks, artists) in distinct card
-containers, each result offering a per-row add control. Album results SHALL
-display the album cover as a thumbnail, loaded asynchronously without blocking
-the results list.
+Search results SHALL be grouped by type (albums, tracks) in distinct card
+containers, each result offering a per-row add control; artists SHALL NOT be
+shown. Album and track result rows SHALL display the title and the artist as
+separate, distinctly styled elements, and SHALL show a "Hi-Res" badge when the
+item is hi-res. Album and track result rows SHALL display a cover thumbnail
+(the track's album cover for tracks), loaded asynchronously without blocking the
+results list.
 
 #### Scenario: Add search result to queue
 - **WHEN** the user selects an album from search results and clicks add
@@ -63,20 +66,29 @@ the results list.
 
 #### Scenario: Results grouped by type
 - **WHEN** search results are displayed
-- **THEN** albums, tracks, and artists appear in separate card sections, each row exposing its own add control
+- **THEN** albums and tracks appear in separate card sections, each row exposing its own add control, and no artists section is shown
 
-#### Scenario: Album cover thumbnails
-- **WHEN** album results are displayed
-- **THEN** each album row shows its cover thumbnail once loaded, with a placeholder shown while loading or when no cover is available, and the list remains usable before thumbnails finish loading
+#### Scenario: Title and artist shown separately
+- **WHEN** album or track results are displayed
+- **THEN** each row shows the title emphasised with the artist on a separate secondary line
+
+#### Scenario: Hi-Res badge on hi-res results
+- **WHEN** an album or track result is hi-res
+- **THEN** the row shows a "Hi-Res" badge, and non-hi-res rows show no such badge
+
+#### Scenario: Album and track cover thumbnails
+- **WHEN** album or track results are displayed
+- **THEN** each row shows its cover thumbnail once loaded, with a placeholder shown while loading or when no cover is available, and the list remains usable before thumbnails finish loading
 
 ### Requirement: Download queue screen
 The system SHALL display a download queue with per-item status
 (queued/downloading/tagging/done/error) shown as a colored badge, per-item
 progress bars, and overall progress. When an item has failed, the system SHALL
 offer a way to relaunch that item's download without re-adding it, both as a
-per-item control and as a single action that retries all failed items. Retry
-controls SHALL be available only when a download batch is not currently in
-progress.
+per-item control and as a single action that retries all failed items. When an
+item is still queued, the system SHALL offer a per-item control to remove it
+from the queue. Retry and remove controls SHALL be available only when a
+download batch is not currently in progress.
 
 #### Scenario: Live progress display
 - **WHEN** downloads are in progress
@@ -93,6 +105,14 @@ progress.
 #### Scenario: Retry all failed tracks
 - **WHEN** one or more items are in the error state and no batch is currently downloading
 - **THEN** the queue header exposes a "Retry failed (N)" control that re-downloads all failed items, and the error count updates as they complete
+
+#### Scenario: Remove a queued track
+- **WHEN** an item is in the queued state and no batch is currently downloading
+- **THEN** its row exposes a Remove control that, when activated, removes that item from the queue while leaving other items untouched
+
+#### Scenario: Remove disabled during download
+- **WHEN** a download batch is in progress
+- **THEN** the per-item Remove controls are disabled
 
 #### Scenario: Retry disabled during download
 - **WHEN** a download batch is in progress

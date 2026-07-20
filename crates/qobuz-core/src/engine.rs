@@ -373,6 +373,8 @@ mod tests {
             media_count: Some(1),
             tracks: None,
             label: None,
+            hires: false,
+            hires_streamable: false,
         };
         let track = Track {
             id: 42,
@@ -388,6 +390,8 @@ mod tests {
             parental_warning: Some(false),
             duration: Some(545),
             album: Some(album.clone()),
+            hires: false,
+            hires_streamable: false,
         };
         Job {
             track,

@@ -9,11 +9,13 @@ use crate::style;
 use iced::widget::text;
 use iced::{Element, Font};
 
-/// Bold variant of the default UI font.
+/// Bold variant of the default UI font (Inter). Basing this on `Font::DEFAULT`
+/// would fall back to a system sans-serif, so it must name the Inter family to
+/// match the surrounding regular-weight Inter text.
 pub(super) fn bold() -> Font {
     Font {
         weight: iced::font::Weight::Bold,
-        ..Font::DEFAULT
+        ..Font::with_name("Inter")
     }
 }
 

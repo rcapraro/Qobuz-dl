@@ -69,20 +69,32 @@ enum ItemStatus {
     Error(String),
 }
 
-/// An album search result: id, display label, and an optional cover URL.
+/// An album search result: id, title, artist, an optional cover URL, and
+/// whether it is available in hi-res.
 #[derive(Debug, Clone)]
 struct AlbumResult {
     id: String,
-    label: String,
+    title: String,
+    artist: String,
     cover: Option<String>,
+    hires: bool,
+}
+
+/// A track search result: id, title, artist, and whether it is hi-res.
+#[derive(Debug, Clone)]
+struct TrackResult {
+    id: String,
+    title: String,
+    artist: String,
+    cover: Option<String>,
+    hires: bool,
 }
 
 /// Search results reduced to display-ready entries.
 #[derive(Debug, Clone, Default)]
 struct SearchPayload {
     albums: Vec<AlbumResult>,
-    tracks: Vec<(String, String)>,
-    artists: Vec<(String, String)>,
+    tracks: Vec<TrackResult>,
 }
 
 /// How the active session's token came to be — shown in the Account card.
@@ -176,7 +188,9 @@ enum Message {
     // Downloads.
     StartDownloads,
     RetryTrack(i64),
+    DequeueTrack(i64),
     RetryFailed,
+    ClearQueue,
     Download(JobEvent),
     /// Carries the app secret that actually signed during the batch, if any, so
     /// it can be promoted to the primary secret and persisted.
@@ -475,7 +489,7 @@ impl App {
                 Task::perform(tasks::do_search(client, q), Message::SearchDone)
             }
             Message::SearchDone(Ok(payload)) => {
-                let n = payload.albums.len() + payload.tracks.len() + payload.artists.len();
+                let n = payload.albums.len() + payload.tracks.len();
                 self.status = if n == 0 {
                     "No results.".into()
                 } else {
@@ -487,6 +501,7 @@ impl App {
                     .albums
                     .iter()
                     .filter_map(|a| a.cover.clone())
+                    .chain(payload.tracks.iter().filter_map(|t| t.cover.clone()))
                     .collect();
                 self.thumbnails.retain(|url, _| wanted.contains(url));
                 // Lazily load album cover thumbnails not already cached.
@@ -583,12 +598,27 @@ impl App {
                     None => Task::none(),
                 }
             }
+            Message::DequeueTrack(track_id) => {
+                let before = self.queue.len();
+                self.queue.retain(|it| {
+                    !(it.track_id == track_id && matches!(it.status, ItemStatus::Queued))
+                });
+                if self.queue.len() != before {
+                    self.status = "Removed from queue.".into();
+                }
+                Task::none()
+            }
             Message::RetryFailed => {
                 let jobs = self.jobs_with(|s| matches!(s, ItemStatus::Error(_)));
                 if jobs.is_empty() {
                     return Task::none();
                 }
                 self.spawn_downloads(jobs)
+            }
+            Message::ClearQueue => {
+                self.queue.clear();
+                self.status = "Queue cleared.".into();
+                Task::none()
             }
             Message::Download(ev) => {
                 self.apply_event(ev);
