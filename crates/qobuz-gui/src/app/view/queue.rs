@@ -1,13 +1,19 @@
 //! The Queue screen: per-track rows with status badges and overall progress.
 
-use super::super::{App, ItemStatus, Message, QueueItem};
+use super::super::{startable, App, ItemStatus, Message, QueueItem};
 use super::gutter_padding;
 use crate::style::{self, styled_button};
-use iced::widget::{button, column, progress_bar, row, scrollable, text};
+use iced::widget::{button, column, container, progress_bar, row, scrollable, text};
 use iced::{Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 
 pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
+    // Nothing to count, nothing to start, nothing to clear: a "0/0 complete"
+    // label over an empty bar reads as broken rather than as empty.
+    if app.queue.is_empty() {
+        return empty_state();
+    }
+
     let done = app
         .queue
         .iter()
@@ -38,7 +44,8 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
         );
     }
 
-    if !app.queue.is_empty() && !app.downloading {
+    // The queue is known non-empty here — the empty case returned above.
+    if !app.downloading {
         header = header.push(
             button(text("Clear queue").center())
                 .padding([style::SPACE_XS, style::SPACE_MD])
@@ -48,14 +55,41 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
         );
     }
 
-    header = header.push(
-        styled_button(if app.downloading {
-            "Downloading…"
-        } else {
-            "Start downloads"
-        })
-        .on_press_maybe((!app.downloading).then_some(Message::StartDownloads)),
-    );
+    // Only while a batch runs. Disabled once cancellation is under way, so it
+    // can't be pressed twice while the batch winds down.
+    if app.downloading {
+        let cancelling = app.cancelling();
+        header = header.push(
+            button(
+                text(if cancelling {
+                    "Cancelling…"
+                } else {
+                    "Cancel"
+                })
+                .center(),
+            )
+            .padding([style::SPACE_XS, style::SPACE_MD])
+            .height(Length::Fixed(style::CONTROL_HEIGHT))
+            .style(button::secondary)
+            .on_press_maybe((!cancelling).then_some(Message::CancelDownloads)),
+        );
+    }
+
+    // Offered only when pressing it would start something. `app.downloading`
+    // is load-bearing, not defensive: rows leave `Queued` as they start, so by
+    // the time the last item is downloading `startable` is already false —
+    // without it the button (and with it the "Downloading…" indicator) would
+    // blink out before the batch ends.
+    if app.downloading || startable(&app.queue) {
+        header = header.push(
+            styled_button(if app.downloading {
+                "Downloading…"
+            } else {
+                "Start downloads"
+            })
+            .on_press_maybe((!app.downloading).then_some(Message::StartDownloads)),
+        );
+    }
 
     let mut list = column![].spacing(style::SPACE_SM);
     for it in &app.queue {
@@ -72,29 +106,79 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// Overall batch progress in `0.0..=1.0`. Byte counts are only meaningful for
-/// items whose total size is known — counting bytes of unknown-total items
-/// against a denominator that excludes them would overstate progress — so
-/// byte-based progress uses known-total items only, falling back to the
-/// done-item fraction when no totals are known yet.
-fn overall_progress(queue: &[QueueItem]) -> f32 {
-    let (total_bytes, got_bytes) = queue
-        .iter()
-        .fold((0u64, 0u64), |(tb, gb), it| match it.total {
-            Some(t) => (tb + t, gb + it.downloaded),
-            None => (tb, gb),
-        });
-    if total_bytes > 0 {
-        got_bytes as f32 / total_bytes as f32
-    } else if queue.is_empty() {
-        0.0
-    } else {
-        let done = queue
-            .iter()
-            .filter(|it| matches!(it.status, ItemStatus::Done(_)))
-            .count();
-        done as f32 / queue.len() as f32
+/// What the Queue screen shows before anything has been added to it.
+fn empty_state<'a>() -> Element<'a, Message> {
+    container(
+        column![
+            text("Nothing queued yet.").size(style::TEXT_BODY),
+            text("Search for an album or paste a Qobuz URL to add tracks.").size(style::TEXT_SM),
+        ]
+        .spacing(style::SPACE_SM)
+        .align_x(iced::Alignment::Center),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .into()
+}
+
+/// How far one queue item has advanced, in `0.0..=1.0`.
+///
+/// `settled_on_error` is the one place the batch aggregate and the item's own
+/// bar disagree. A failed item is finished — it will not move again without an
+/// explicit retry — so it counts as advanced for the overall bar; otherwise a
+/// single permanent failure would pin the batch below full forever, which
+/// reads as "still working" when nothing is running. Its *own* bar stays empty
+/// though: a full bar under a red error badge would be actively misleading.
+fn item_fraction(it: &QueueItem, settled_on_error: bool) -> f32 {
+    match &it.status {
+        ItemStatus::Queued => 0.0,
+        ItemStatus::Downloading => match it.total {
+            // Clamped per item so one item can't borrow headroom from the rest
+            // of the batch: `with_retry` reuses a single progress forwarder
+            // across attempts, so one attempt's total can pair with another
+            // attempt's byte count.
+            Some(t) if t > 0 => (it.downloaded as f32 / t as f32).clamp(0.0, 1.0),
+            _ => 0.0,
+        },
+        ItemStatus::Tagging | ItemStatus::Done(_) => 1.0,
+        ItemStatus::Error(_) => {
+            if settled_on_error {
+                1.0
+            } else {
+                0.0
+            }
+        }
     }
+}
+
+/// Per-item progress as counted toward the batch aggregate.
+fn batch_fraction(it: &QueueItem) -> f32 {
+    item_fraction(it, true)
+}
+
+/// Per-item progress as rendered on that item's own bar.
+fn row_fraction(it: &QueueItem) -> f32 {
+    item_fraction(it, false)
+}
+
+/// Overall batch progress in `0.0..=1.0`: the share of the *whole* queue that
+/// has advanced, averaged over every item.
+///
+/// Every item counts toward the denominator, including ones that have not
+/// started yet. A track's total size is only known once its download response
+/// arrives, and `download_all` gates jobs behind a concurrency semaphore — so
+/// weighting by known bytes would measure the current concurrency window
+/// rather than the batch, reading full while tracks were still queued and then
+/// snapping backwards as the next wave started. Terminal items count as
+/// complete, which also covers tracks finished by the already-on-disk skip
+/// path, where no bytes are ever transferred.
+fn overall_progress(queue: &[QueueItem]) -> f32 {
+    if queue.is_empty() {
+        return 0.0;
+    }
+    queue.iter().map(batch_fraction).sum::<f32>() / queue.len() as f32
 }
 
 /// Background/foreground accent selector for a queue item's status badge.
@@ -109,19 +193,16 @@ fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, ic
 }
 
 fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
-    let (status_text, fraction): (String, f32) = match &it.status {
-        ItemStatus::Queued => ("queued".into(), 0.0),
-        ItemStatus::Downloading => {
-            let f = match it.total {
-                Some(t) if t > 0 => it.downloaded as f32 / t as f32,
-                _ => 0.0,
-            };
-            // Pad to a constant width so the badge doesn't shift as digits change.
-            (format!("downloading {:>3.0}%", f * 100.0), f)
-        }
-        ItemStatus::Tagging => ("tagging".into(), 1.0),
-        ItemStatus::Done(q) => (format!("done · {q}"), 1.0),
-        ItemStatus::Error(e) => (format!("error: {e}"), 0.0),
+    // The badge label is derived from the same fraction the bar renders, so the
+    // two can't drift apart.
+    let fraction = row_fraction(it);
+    let status_text: String = match &it.status {
+        ItemStatus::Queued => "queued".into(),
+        // Pad to a constant width so the badge doesn't shift as digits change.
+        ItemStatus::Downloading => format!("downloading {:>3.0}%", fraction * 100.0),
+        ItemStatus::Tagging => "tagging".into(),
+        ItemStatus::Done(q) => format!("done · {q}"),
+        ItemStatus::Error(e) => format!("error: {e}"),
     };
 
     let pick = badge_palette(&it.status);
@@ -216,15 +297,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn unknown_totals_do_not_inflate_progress() {
-        // 50 of 100 known bytes plus 999 bytes toward an unknown total must
-        // read as 50%, not (50+999)/100.
-        let queue = vec![
-            item(Some(100), 50, ItemStatus::Downloading),
-            item(None, 999, ItemStatus::Downloading),
-        ];
-        assert_eq!(overall_progress(&queue), 0.5);
+    fn done() -> ItemStatus {
+        ItemStatus::Done("FLAC".into())
     }
 
     #[test]
@@ -233,9 +307,107 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_done_fraction_without_totals() {
+    fn pending_items_count_toward_denominator() {
+        // The regression test for the reported bug: with a concurrency window
+        // smaller than the batch, the not-yet-started tracks have no known
+        // total. They must still hold the bar back — 4 of 20 done is 20%, not
+        // a full bar.
+        let mut queue: Vec<QueueItem> = (0..4).map(|_| item(Some(100), 100, done())).collect();
+        queue.extend((0..16).map(|_| item(None, 0, ItemStatus::Queued)));
+        assert_eq!(overall_progress(&queue), 0.2);
+    }
+
+    #[test]
+    fn partial_download_is_averaged() {
         let queue = vec![
-            item(None, 0, ItemStatus::Done("FLAC".into())),
+            item(Some(100), 50, ItemStatus::Downloading),
+            item(None, 0, ItemStatus::Queued),
+        ];
+        assert_eq!(overall_progress(&queue), 0.25);
+    }
+
+    #[test]
+    fn skipped_items_count_as_complete() {
+        // The already-on-disk skip path finishes a track without emitting any
+        // progress event, so it ends done with no total and no bytes.
+        let queue = vec![item(None, 0, done())];
+        assert_eq!(overall_progress(&queue), 1.0);
+    }
+
+    #[test]
+    fn failed_items_are_settled() {
+        let queue = vec![
+            item(None, 0, done()),
+            item(None, 0, ItemStatus::Error("x".into())),
+        ];
+        assert_eq!(overall_progress(&queue), 1.0);
+    }
+
+    #[test]
+    fn unknown_total_while_downloading_contributes_nothing() {
+        // 999 bytes toward an unknown total is not measurable progress.
+        let queue = vec![
+            item(None, 999, ItemStatus::Downloading),
+            item(None, 0, done()),
+        ];
+        assert_eq!(overall_progress(&queue), 0.5);
+    }
+
+    #[test]
+    fn row_bar_is_empty_for_failed_item() {
+        let failed = item(None, 0, ItemStatus::Error("boom".into()));
+        assert_eq!(row_fraction(&failed), 0.0);
+        assert_eq!(batch_fraction(&failed), 1.0);
+    }
+
+    #[test]
+    fn startable_with_a_queued_track() {
+        assert!(startable(&[item(None, 0, ItemStatus::Queued)]));
+    }
+
+    #[test]
+    fn not_startable_when_queue_is_empty() {
+        assert!(!startable(&[]));
+    }
+
+    #[test]
+    fn not_startable_when_all_done() {
+        assert!(!startable(&[item(None, 0, done()), item(None, 0, done())]));
+    }
+
+    #[test]
+    fn not_startable_when_only_failures_remain() {
+        // Relaunching failures belongs to the Retry controls, so Start has
+        // nothing left to do once every track has been attempted.
+        let queue = vec![
+            item(None, 0, done()),
+            item(None, 0, ItemStatus::Error("x".into())),
+        ];
+        assert!(!startable(&queue));
+    }
+
+    #[test]
+    fn startable_when_a_queued_track_sits_beside_failures() {
+        let queue = vec![
+            item(None, 0, ItemStatus::Queued),
+            item(None, 0, ItemStatus::Error("x".into())),
+        ];
+        assert!(startable(&queue));
+    }
+
+    #[test]
+    fn not_startable_while_a_lone_item_downloads() {
+        // The button stays visible mid-batch through the `app.downloading`
+        // arm of the header condition, not through this predicate.
+        assert!(!startable(&[item(Some(100), 50, ItemStatus::Downloading)]));
+    }
+
+    #[test]
+    fn overdownload_is_clamped_per_item() {
+        // A retry can pair one attempt's total with another's byte count; the
+        // excess must not spill into the other items' share of the bar.
+        let queue = vec![
+            item(Some(100), 150, ItemStatus::Downloading),
             item(None, 0, ItemStatus::Queued),
         ];
         assert_eq!(overall_progress(&queue), 0.5);

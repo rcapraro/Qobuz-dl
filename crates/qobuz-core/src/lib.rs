@@ -28,3 +28,7 @@ pub use download::fetch_bytes;
 pub use engine::{download_all, resolve, Job, JobEvent};
 pub use error::{Error, Result};
 pub use quality::Quality;
+
+/// Re-exported so callers can cancel a batch without depending on `tokio-util`
+/// themselves. Pass one to [`download_all`] and call `cancel()` to stop it.
+pub use tokio_util::sync::CancellationToken;

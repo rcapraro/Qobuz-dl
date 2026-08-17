@@ -51,6 +51,11 @@ pub enum Error {
 
     #[error("configuration error: {0}")]
     Config(String),
+
+    /// The batch was cancelled by the caller. Deliberately *not* transient —
+    /// retrying a cancellation would defeat the point.
+    #[error("download cancelled")]
+    Cancelled,
 }
 
 impl Error {
@@ -102,5 +107,7 @@ mod tests {
             message: "missing".into()
         }
         .is_transient());
+        // A retried cancellation would never stop the batch.
+        assert!(!Error::Cancelled.is_transient());
     }
 }

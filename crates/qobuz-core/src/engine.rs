@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 const MAX_ATTEMPTS: u32 = 4;
 
@@ -49,6 +50,11 @@ pub enum JobEvent {
     Failed {
         track_id: i64,
         error: String,
+    },
+    /// The batch was cancelled before this track finished. Distinct from
+    /// [`JobEvent::Failed`] so a cancelled track isn't reported as an error.
+    Cancelled {
+        track_id: i64,
     },
 }
 
@@ -118,11 +124,19 @@ fn jobs_from_album(mut album: Album) -> Vec<Job> {
 /// Download every job with bounded concurrency, emitting [`JobEvent`]s. A single
 /// job failure is isolated (reported via `JobEvent::Failed`) and does not abort
 /// the batch.
+///
+/// Cancelling `cancel` stops the batch cooperatively: tracks still waiting for a
+/// concurrency slot never start, in-flight transfers are abandoned mid-stream,
+/// and a pending retry backoff is interrupted rather than waited out. Each
+/// affected track reports [`JobEvent::Cancelled`]. This function still drains
+/// every task before returning, so once it completes no download work remains
+/// running and the event channel closes exactly as it does for a normal batch.
 pub async fn download_all(
     client: QobuzClient,
     config: Config,
     jobs: Vec<Job>,
     events: mpsc::Sender<JobEvent>,
+    cancel: CancellationToken,
 ) {
     let semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
     let client = Arc::new(client);
@@ -131,26 +145,41 @@ pub async fn download_all(
     let cover_cache: Arc<Mutex<HashMap<String, Option<Vec<u8>>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
-    let mut handles = Vec::new();
+    // A `JoinSet` rather than detached handles: dropping it aborts its tasks,
+    // so a batch can never outlive this future as background work still writing
+    // to disk. Every task is drained below, so the last `events` clone is gone
+    // by the time this returns and the receiver sees the channel close.
+    let mut tasks = tokio::task::JoinSet::new();
     for job in jobs {
         let permit_sem = semaphore.clone();
         let client = client.clone();
         let config = config.clone();
         let events = events.clone();
         let cover_cache = cover_cache.clone();
+        let cancel = cancel.clone();
 
-        handles.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             let _permit = permit_sem
                 .acquire()
                 .await
                 .expect("semaphore is never closed");
-            run_job(&client, &config, &job, &events, &cover_cache).await;
-        }));
+            // Most of a large batch is parked on the line above, so this is
+            // where cancelling is nearly free — bail before any network I/O.
+            if cancel.is_cancelled() {
+                let _ = events
+                    .send(JobEvent::Cancelled {
+                        track_id: job.track.id,
+                    })
+                    .await;
+                return;
+            }
+            run_job(&client, &config, &job, &events, &cover_cache, &cancel).await;
+        });
     }
 
-    for h in handles {
+    while let Some(res) = tasks.join_next().await {
         // A panicking job task emits no `Failed` event — at least leave a trace.
-        if let Err(e) = h.await {
+        if let Err(e) = res {
             tracing::error!("download job task failed: {e}");
         }
     }
@@ -163,6 +192,7 @@ async fn run_job(
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
     cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+    cancel: &CancellationToken,
 ) {
     let track_id = job.track.id;
     let _ = events
@@ -172,7 +202,7 @@ async fn run_job(
         })
         .await;
 
-    match download_one(client, config, job, events, cover_cache).await {
+    match download_one(client, config, job, events, cover_cache, cancel).await {
         Ok((path, delivered)) => {
             let _ = events
                 .send(JobEvent::Done {
@@ -181,6 +211,11 @@ async fn run_job(
                     delivered,
                 })
                 .await;
+        }
+        // Cancellation isn't a failure — reporting it as one would paint the
+        // whole queue red for a batch the user chose to stop.
+        Err(Error::Cancelled) => {
+            let _ = events.send(JobEvent::Cancelled { track_id }).await;
         }
         Err(e) => {
             let _ = events
@@ -199,16 +234,26 @@ async fn download_one(
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
     cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+    cancel: &CancellationToken,
 ) -> Result<(PathBuf, String)> {
     let track_id = job.track.id;
 
     let (file, dest, delivered_quality) =
-        download_with_progress(client, config, job, events).await?;
+        download_with_progress(client, config, job, events, cancel).await?;
 
-    // Fetch cover art (cached per album) if embedding is enabled.
+    // Fetch cover art (cached per album) if embedding is enabled. The track's
+    // bytes are already on disk at this point, so cancelling here would only
+    // strand an untagged file — instead the track is allowed to finish, and
+    // cancellation just gives up on the *artwork*. Without that race a cancel
+    // could sit on a slow cover host for the full 30s `fetch_bytes` timeout,
+    // times `concurrency` tracks, before the batch stopped.
     let _ = events.send(JobEvent::Tagging { track_id }).await;
     let cover = if config.embed_art {
-        fetch_cover(&job.album, cover_cache).await
+        tokio::select! {
+            biased;
+            c = fetch_cover(&job.album, cover_cache) => c,
+            _ = cancel.cancelled() => None,
+        }
     } else {
         None
     };
@@ -234,6 +279,7 @@ async fn download_with_progress(
     config: &Config,
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
+    cancel: &CancellationToken,
 ) -> Result<(crate::models::FileUrl, PathBuf, Quality)> {
     let track_id = job.track.id;
     let track_id_str = track_id.to_string();
@@ -254,7 +300,22 @@ async fn download_with_progress(
         }
     });
 
-    let result = download::with_retry(MAX_ATTEMPTS, || {
+    // One `select!` covers both the in-flight transfer and the backoff sleep
+    // between attempts, because both live inside the retry future — so cancel
+    // never has to wait out a retry delay (or a long server `Retry-After`).
+    // Losing the race just drops that future; the temp file's drop guard in
+    // `download` cleans up the partial `.part`.
+    //
+    // `biased` polls the download *first* on purpose. Its last step renames the
+    // temp file into place, and that side effect lands on the blocking pool
+    // before the future reports ready — so letting cancel win a tie would
+    // discard a download that is already sitting complete at `dest`, leaving an
+    // untagged file the caller was told never finished. Cancellation is still
+    // prompt: whenever the download isn't ready, this branch returns pending
+    // and the cancel branch is polled immediately after.
+    let result = tokio::select! {
+        biased;
+        r = download::with_retry(MAX_ATTEMPTS, || {
         let tx = tx.clone();
         async move {
             let file = client.file_url(track_id_str, config.quality).await?;
@@ -268,8 +329,11 @@ async fn download_with_progress(
             download::stream_to_file(client.http(), &url, &dest, Some(&tx)).await?;
             Ok::<_, Error>((file, dest, delivered_quality))
         }
-    })
-    .await;
+        }) => r,
+        _ = cancel.cancelled() => Err(Error::Cancelled),
+    };
+    // Runs on the cancelled path too, so the forwarder task is joined rather
+    // than left behind.
     drop(tx);
     let _ = forward.await;
     result
@@ -398,6 +462,41 @@ mod tests {
             album,
             multi_disc: false,
         }
+    }
+
+    #[tokio::test]
+    async fn pre_cancelled_batch_starts_no_downloads() {
+        // An already-cancelled token means every job bails right after taking
+        // its semaphore permit, before touching the network. The client below
+        // has bogus credentials and would fail loudly if any request were made.
+        let client = QobuzClient::new(String::from("app"), String::from("secret")).expect("client");
+        let config = Config {
+            download_dir: std::env::temp_dir().join("qobuz-dl-cancel-test"),
+            concurrency: 2,
+            ..Config::default()
+        };
+        let mut a = sample_job();
+        a.track.id = 1;
+        let mut b = sample_job();
+        b.track.id = 2;
+
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let (tx, mut rx) = mpsc::channel(16);
+        download_all(client, config, vec![a, b], tx, cancel).await;
+
+        let mut cancelled = Vec::new();
+        // `download_all` drains every task before returning, so the channel is
+        // already closed here — this loop must terminate on its own.
+        while let Some(ev) = rx.recv().await {
+            match ev {
+                JobEvent::Cancelled { track_id } => cancelled.push(track_id),
+                other => panic!("expected only Cancelled events, got {other:?}"),
+            }
+        }
+        cancelled.sort_unstable();
+        assert_eq!(cancelled, vec![1, 2]);
     }
 
     #[test]

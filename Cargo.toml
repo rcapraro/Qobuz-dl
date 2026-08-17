@@ -3,13 +3,16 @@ resolver = "2"
 members = ["crates/qobuz-core", "crates/qobuz-gui"]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["Qobuz-dl contributors"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
+# `CancellationToken` lives in tokio-util's always-available `sync` module —
+# no feature flag needed (the crate's only optional extras are io/codec/etc).
+tokio-util = "0.7"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

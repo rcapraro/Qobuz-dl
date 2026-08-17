@@ -9,7 +9,7 @@ use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
-use qobuz_core::{auth, engine, AppCredentials, QobuzClient, SigningCheck};
+use qobuz_core::{auth, engine, AppCredentials, CancellationToken, QobuzClient, SigningCheck};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -67,6 +67,17 @@ enum ItemStatus {
     Tagging,
     Done(String),
     Error(String),
+}
+
+/// Whether the queue holds anything a fresh Start would act on: tracks that
+/// have never been attempted. Shared by `Message::StartDownloads` and the Queue
+/// header, so the button is only offered when pressing it would do something.
+/// Failed tracks are deliberately excluded — the per-item Retry and
+/// "Retry failed (N)" controls own those.
+fn startable(queue: &[QueueItem]) -> bool {
+    queue
+        .iter()
+        .any(|it| matches!(it.status, ItemStatus::Queued))
 }
 
 /// An album search result: id, title, artist, an optional cover URL, and
@@ -137,6 +148,9 @@ pub struct App {
     // Queue.
     queue: Vec<QueueItem>,
     downloading: bool,
+    /// Cancels the running batch. A fresh token per batch — reusing one would
+    /// start the next batch already cancelled. `None` while idle.
+    cancel: Option<CancellationToken>,
 
     // UI preferences.
     show_template_help: bool,
@@ -187,6 +201,7 @@ enum Message {
 
     // Downloads.
     StartDownloads,
+    CancelDownloads,
     RetryTrack(i64),
     DequeueTrack(i64),
     RetryFailed,
@@ -235,6 +250,7 @@ impl App {
             thumbnails: HashMap::new(),
             queue: Vec::new(),
             downloading: false,
+            cancel: None,
             token,
             status,
             config,
@@ -577,14 +593,28 @@ impl App {
 
             // ---- Downloads ----
             Message::StartDownloads => {
-                // Download everything not yet done (fresh + previously errored).
-                let jobs =
-                    self.jobs_with(|s| matches!(s, ItemStatus::Queued | ItemStatus::Error(_)));
+                // Only tracks that have never been attempted — relaunching a
+                // failed one is the Retry controls' job. Matches `startable`,
+                // which decides whether the button is offered at all.
+                let jobs = self.jobs_with(|s| matches!(s, ItemStatus::Queued));
                 if jobs.is_empty() {
+                    // Unreachable from the button, which hides itself in this
+                    // state, but the message can still arrive.
                     self.status = "Nothing queued to download.".into();
                     return Task::none();
                 }
                 self.spawn_downloads(jobs)
+            }
+            Message::CancelDownloads => {
+                // A request, not a state change: the batch still ends through
+                // its normal completion path, so `DownloadsFinished` stays the
+                // one place `downloading` is cleared and the queue is left for
+                // the per-track `Cancelled` events to requeue.
+                if let Some(cancel) = &self.cancel {
+                    cancel.cancel();
+                    self.status = "Cancelling…".into();
+                }
+                Task::none()
             }
             Message::RetryTrack(track_id) => {
                 let job = self
@@ -626,6 +656,13 @@ impl App {
             }
             Message::DownloadsFinished(working_secret) => {
                 self.downloading = false;
+                // Requeued rows are the evidence that cancelling actually cut
+                // work short. The token alone isn't enough: a Cancel pressed
+                // after the engine finished but before this message is handled
+                // still flips it, and reporting that batch as cancelled would
+                // be a lie — nothing was stopped.
+                let was_cancelled =
+                    self.cancel.take().is_some_and(|c| c.is_cancelled()) && startable(&self.queue);
                 // Persist the secret that actually signed so the next session
                 // starts from the known-good one instead of re-probing.
                 if let Some(secret) = working_secret {
@@ -639,7 +676,27 @@ impl App {
                     .iter()
                     .filter(|i| matches!(i.status, ItemStatus::Error(_)))
                     .count();
-                self.status = if errors == 0 {
+                self.status = if was_cancelled {
+                    // A track can finish between the click and the stop, so
+                    // report what actually completed rather than what was
+                    // showing when Cancel was pressed.
+                    let done = self
+                        .queue
+                        .iter()
+                        .filter(|i| matches!(i.status, ItemStatus::Done(_)))
+                        .count();
+                    let mut s = format!(
+                        "Download cancelled — {done} of {} completed",
+                        self.queue.len()
+                    );
+                    // Failures that happened before the cancel are still worth
+                    // surfacing; the Retry failed control is keyed off them.
+                    if errors > 0 {
+                        s.push_str(&format!(", {errors} error(s)"));
+                    }
+                    s.push('.');
+                    s
+                } else if errors == 0 {
                     "All downloads finished.".into()
                 } else {
                     format!("Downloads finished with {errors} error(s).")
@@ -647,6 +704,12 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// Whether a cancel has been requested and the batch is still winding down.
+    /// The Queue header uses it to show "Cancelling…" and stop a second press.
+    fn cancelling(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|c| c.is_cancelled())
     }
 
     /// Clone the jobs of every queue row whose status matches `pred`.
@@ -686,6 +749,9 @@ impl App {
         let config = self.config.clone();
         self.downloading = true;
         self.status = format!("Downloading {} track(s)…", jobs.len());
+        // Fresh per batch — a reused token would already be cancelled.
+        let cancel = CancellationToken::new();
+        self.cancel = Some(cancel.clone());
 
         let stream = iced::stream::channel(256, move |mut output| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<JobEvent>(256);
@@ -693,7 +759,7 @@ impl App {
             // the `working_secret` cache, so we can read which secret signed
             // once the batch completes.
             let probe = client.clone();
-            let engine = engine::download_all(client, config, jobs, tx);
+            let engine = engine::download_all(client, config, jobs, tx, cancel);
             let drain = async {
                 while let Some(ev) = rx.recv().await {
                     let _ = output.send(Message::Download(ev)).await;
@@ -713,7 +779,8 @@ impl App {
             | JobEvent::Progress { track_id, .. }
             | JobEvent::Tagging { track_id }
             | JobEvent::Done { track_id, .. }
-            | JobEvent::Failed { track_id, .. } => *track_id,
+            | JobEvent::Failed { track_id, .. }
+            | JobEvent::Cancelled { track_id } => *track_id,
         };
         let Some(item) = self.item_mut(track_id) else {
             return;
@@ -730,6 +797,14 @@ impl App {
             JobEvent::Tagging { .. } => item.status = ItemStatus::Tagging,
             JobEvent::Done { delivered, .. } => item.status = ItemStatus::Done(delivered),
             JobEvent::Failed { error, .. } => item.status = ItemStatus::Error(error),
+            // Back to queued with its progress discarded, so the partial file
+            // (already deleted by the engine) is re-fetched from scratch and
+            // `startable` offers Start again to resume the batch.
+            JobEvent::Cancelled { .. } => {
+                item.status = ItemStatus::Queued;
+                item.downloaded = 0;
+                item.total = None;
+            }
         }
     }
 

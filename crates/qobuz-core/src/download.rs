@@ -59,19 +59,45 @@ pub async fn stream_to_file(
 
     let total = resp.content_length();
     // Write to a temp file, then rename on success so partial files aren't left
-    // looking complete. On any error the partial file is removed so a retry
-    // starts clean and no orphaned `.part` is left behind. The name carries a
+    // looking complete. The guard removes the partial file however the transfer
+    // ends — an error, or the future being dropped part-way when the batch is
+    // cancelled — so no orphaned `.part` is left behind. The name carries a
     // process-unique sequence number so two jobs that render the same
     // destination can never stream into the same temp file.
-    let tmp = part_path(dest);
-    match stream_to_tmp(resp, &tmp, total, progress).await {
-        Ok(()) => {
-            tokio::fs::rename(&tmp, dest).await?;
-            Ok(())
-        }
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&tmp).await;
-            Err(e)
+    let tmp = PartFile::new(part_path(dest));
+    stream_to_tmp(resp, tmp.path(), total, progress).await?;
+    tokio::fs::rename(tmp.path(), dest).await?;
+    tmp.disarm();
+    Ok(())
+}
+
+/// A `.partN` temp file that deletes itself unless [`PartFile::disarm`] is
+/// called. Cleanup has to happen on drop, not just on the error path: a
+/// cancelled batch drops the transfer future mid-stream, which never returns an
+/// error for an `Err` branch to clean up after.
+struct PartFile(Option<std::path::PathBuf>);
+
+impl PartFile {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    fn path(&self) -> &Path {
+        self.0.as_deref().expect("armed until disarmed")
+    }
+
+    /// Give up ownership of the file — call once it has been renamed into place.
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for PartFile {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            // `Drop` can't await, so this is the sync unlink. It only runs on
+            // the interrupted path, and a single unlink is cheap.
+            let _ = std::fs::remove_file(path);
         }
     }
 }
@@ -175,6 +201,39 @@ mod tests {
     fn part_paths_for_the_same_dest_are_unique() {
         let dest = Path::new("/music/song.flac");
         assert_ne!(part_path(dest), part_path(dest));
+    }
+
+    /// A uniquely named scratch path under the OS temp dir.
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("qobuz-dl-test-{tag}-{n}"))
+    }
+
+    #[test]
+    fn part_file_is_removed_when_dropped() {
+        // The cancellation path: the transfer future is dropped mid-stream and
+        // never returns an error, so only `Drop` can clean up.
+        let path = scratch("drop");
+        std::fs::write(&path, b"partial").unwrap();
+        drop(PartFile::new(path.clone()));
+        assert!(!path.exists(), "dropping an armed PartFile must delete it");
+    }
+
+    #[test]
+    fn disarmed_part_file_is_left_alone() {
+        // The success path: the file has already been renamed into place, so
+        // the guard must not delete what is now the finished download.
+        let path = scratch("disarm");
+        std::fs::write(&path, b"complete").unwrap();
+        PartFile::new(path.clone()).disarm();
+        assert!(
+            path.exists(),
+            "a disarmed PartFile must not delete anything"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]

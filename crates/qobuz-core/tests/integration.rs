@@ -46,11 +46,13 @@ async fn live_album_download_flow() {
     };
 
     let (tx, mut rx) = mpsc::channel(256);
+    // Never cancelled here — this exercises the normal end-to-end path.
     let handle = tokio::spawn(qobuz_core::download_all(
         client,
         config,
         jobs.into_iter().take(1).collect(),
         tx,
+        qobuz_core::CancellationToken::new(),
     ));
 
     let mut done_paths: Vec<PathBuf> = Vec::new();
@@ -58,6 +60,9 @@ async fn live_album_download_flow() {
         match ev {
             qobuz_core::JobEvent::Done { path, .. } => done_paths.push(path),
             qobuz_core::JobEvent::Failed { error, .. } => panic!("download failed: {error}"),
+            qobuz_core::JobEvent::Cancelled { track_id } => {
+                panic!("unexpected cancellation of track {track_id}")
+            }
             _ => {}
         }
     }
