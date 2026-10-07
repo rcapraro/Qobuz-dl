@@ -4,10 +4,12 @@ pub(super) mod queue;
 pub(super) mod search;
 pub(super) mod settings;
 
+use super::status::{Status, StatusKind};
 use super::Message;
-use crate::style;
-use iced::widget::text;
-use iced::{Element, Font};
+use crate::style::{self, compact_button};
+use iced::widget::{container, row, text};
+use iced::{Alignment, Color, Element, Font, Length};
+use iced_aw::widget::badge::Badge;
 
 /// Bold variant of the default UI font (Inter). Basing this on `Font::DEFAULT`
 /// would fall back to a system sans-serif, so it must name the Inter family to
@@ -33,14 +35,65 @@ pub(super) fn section(title: &str) -> Element<'_, Message> {
     text(title).size(style::TEXT_SECTION).into()
 }
 
-/// A titled card grouping a section's controls. `head` picks the accent color
-/// for the card's header from the active Catppuccin flavor.
+/// Icon glyph and accent role for a status kind. Every glyph is present in the
+/// bundled Inter, so none falls back to an OS font.
+fn status_look(kind: StatusKind) -> (&'static str, fn(&style::Accents) -> Color) {
+    match kind {
+        StatusKind::Info => ("•", |a| a.surface2),
+        StatusKind::Progress => ("…", style::Accents::progress),
+        StatusKind::Success => ("✓", style::Accents::success),
+        StatusKind::Error => ("✗", style::Accents::error),
+    }
+}
+
+/// The status line under the header. Its height is fixed so that dismissing a
+/// message, or the dismiss control appearing, never shifts the tabs below.
+pub(super) fn status_bar(status: Option<&Status>) -> Element<'_, Message> {
+    let kind = status.map_or(StatusKind::Info, |s| s.kind);
+    let (glyph, role) = status_look(kind);
+
+    let mut line = row![].spacing(style::SPACE_SM).align_y(Alignment::Center);
+    if let Some(s) = status {
+        line = line
+            .push(
+                text(glyph)
+                    .size(style::TEXT_BODY)
+                    .font(bold())
+                    .style(move |theme| text::Style {
+                        color: Some(role(&style::accents(theme))),
+                    }),
+            )
+            .push(text(&s.text).size(style::TEXT_SM).width(Length::Fill));
+        if s.kind == StatusKind::Error {
+            line = line.push(compact_button("×").on_press(Message::DismissStatus));
+        }
+    }
+
+    container(line)
+        .style(move |theme| style::status_surface(theme, role(&style::accents(theme))))
+        .padding([0, style::SPACE_MD])
+        .center_y(Length::Fixed(style::CONTROL_HEIGHT))
+        .width(Length::Fill)
+        .into()
+}
+
+/// A small audio-quality chip ("Hi-Res", a delivered format), styled like the
+/// queue's status badges but in the quality accent.
+pub(super) fn quality_badge<'a>(label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    Badge::new(text(label).size(style::TEXT_SM))
+        .style(|theme, _status| {
+            let a = style::accents(theme);
+            style::badge(a.quality(), a.on_accent)
+        })
+        .into()
+}
+
+/// A titled card grouping a section's controls.
 pub(super) fn card<'a>(
     title: &'a str,
     body: impl Into<Element<'a, Message>>,
-    head: fn(&style::Accents) -> iced::Color,
 ) -> Element<'a, Message> {
-    card_el(text(title).size(style::TEXT_SECTION), body, head)
+    card_el(text(title).size(style::TEXT_SECTION), body)
 }
 
 /// Like [`card`] but with an arbitrary header element (e.g. a title plus a help
@@ -48,12 +101,8 @@ pub(super) fn card<'a>(
 pub(super) fn card_el<'a>(
     head_content: impl Into<Element<'a, Message>>,
     body: impl Into<Element<'a, Message>>,
-    head: fn(&style::Accents) -> iced::Color,
 ) -> Element<'a, Message> {
     iced_aw::widget::card::Card::new(head_content, body)
-        .style(move |theme, _status| {
-            let a = style::accents(theme);
-            style::card(&a, head(&a))
-        })
+        .style(|theme, _status| style::card(theme))
         .into()
 }

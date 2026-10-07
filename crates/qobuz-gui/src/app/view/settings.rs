@@ -128,28 +128,24 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
             help_card(
                 "API credentials",
                 creds_body,
-                |a| a.mauve,
                 app.show_credentials_help,
                 Message::ToggleCredentialsHelp
             ),
             help_card(
                 "Account",
                 auth_body,
-                |a| a.green,
                 app.show_account_help,
                 Message::ToggleAccountHelp
             ),
             help_card(
                 "File organization",
                 org_body,
-                |a| a.teal,
                 app.show_template_help,
                 Message::ToggleTemplateHelp
             ),
             help_card(
                 "Options",
                 options_body,
-                |a| a.peach,
                 app.show_options_help,
                 Message::ToggleOptionsHelp
             ),
@@ -165,7 +161,6 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
 fn help_card<'a>(
     title: &'a str,
     body: impl Into<Element<'a, Message>>,
-    head: fn(&style::Accents) -> iced::Color,
     shown: bool,
     toggle: Message,
 ) -> Element<'a, Message> {
@@ -174,7 +169,7 @@ fn help_card<'a>(
         style::help_button(shown, toggle),
     ]
     .align_y(iced::Alignment::Center);
-    card_el(header, body, head)
+    card_el(header, body)
 }
 
 /// Mask a stored token for display: at most the last 4 characters are shown

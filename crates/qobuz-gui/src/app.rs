@@ -5,15 +5,19 @@ use iced::futures::{future, SinkExt};
 use iced::widget::{column, container, row, text};
 use iced::{Element, Length, Task, Theme};
 use iced_aw::widget::{tab_bar::TabLabel, tabs::Tabs};
+use omnibox::Submit;
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
 use qobuz_core::{auth, engine, AppCredentials, CancellationToken, QobuzClient, SigningCheck};
+use status::Status;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 mod help;
+mod omnibox;
+mod status;
 mod tasks;
 mod view;
 
@@ -80,6 +84,27 @@ fn startable(queue: &[QueueItem]) -> bool {
         .any(|it| matches!(it.status, ItemStatus::Queued))
 }
 
+/// Tracks still to process: queued, downloading, or tagging. Done and failed
+/// tracks are settled, so they don't count toward the Queue tab's number.
+fn remaining(queue: &[QueueItem]) -> usize {
+    queue
+        .iter()
+        .filter(|it| {
+            matches!(
+                it.status,
+                ItemStatus::Queued | ItemStatus::Downloading | ItemStatus::Tagging
+            )
+        })
+        .count()
+}
+
+fn queue_tab_label(queue: &[QueueItem]) -> String {
+    match remaining(queue) {
+        0 => "Queue".to_owned(),
+        n => format!("Queue ({n})"),
+    }
+}
+
 /// An album search result: id, title, artist, an optional cover URL, and
 /// whether it is available in hi-res.
 #[derive(Debug, Clone)]
@@ -127,7 +152,8 @@ struct StoredToken {
 pub struct App {
     screen: Screen,
     config: Config,
-    status: String,
+    /// `None` once the user dismisses an error.
+    status: Option<Status>,
     token: Option<StoredToken>,
 
     // Settings form fields.
@@ -140,7 +166,9 @@ pub struct App {
 
     // Search / add.
     search_query: String,
-    url_input: String,
+    /// The last query, when it was also a valid bare ID, offered as an explicit
+    /// add action above the results.
+    offered_id: Option<Reference>,
     results: SearchPayload,
     /// Album cover thumbnails, keyed by cover URL, loaded lazily.
     thumbnails: HashMap<String, iced::widget::image::Handle>,
@@ -163,6 +191,7 @@ pub struct App {
 enum Message {
     Navigate(Screen),
     ToggleTheme,
+    DismissStatus,
     ToggleTemplateHelp,
     ToggleCredentialsHelp,
     ToggleAccountHelp,
@@ -194,8 +223,6 @@ enum Message {
     SearchSubmit,
     SearchDone(Result<SearchPayload, String>),
     ThumbnailLoaded(String, Result<Vec<u8>, ()>),
-    UrlChanged(String),
-    AddUrl,
     Add(Reference),
     Resolved(Result<Vec<Job>, String>),
 
@@ -227,17 +254,24 @@ impl App {
             value,
             origin: TokenOrigin::Restored,
         });
+        // Missing setup is shown by the Search screen's prompt, not here.
         let status = if let Some(e) = config_error {
-            format!("Could not load saved settings ({e}); using defaults.")
-        } else if token.is_some() {
-            "Restored saved session.".to_string()
-        } else if !config.has_app_credentials() {
-            "Enter your Qobuz app_id / app_secret and sign in (Settings).".to_string()
+            Some(Status::error(format!(
+                "Could not load saved settings ({e}); using defaults."
+            )))
         } else {
-            "Sign in on the Settings screen.".to_string()
+            token
+                .is_some()
+                .then(|| Status::info("Restored saved session."))
         };
-        let app = App {
-            screen: Screen::Settings,
+        (Self::from_parts(config, token, status), Task::none())
+    }
+
+    /// The initial state for already-loaded settings and token, without
+    /// touching the config file or the keyring.
+    fn from_parts(config: Config, token: Option<StoredToken>, status: Option<Status>) -> Self {
+        App {
+            screen: Screen::Search,
             show_template_help: false,
             show_credentials_help: false,
             show_account_help: false,
@@ -245,7 +279,7 @@ impl App {
             token_input: String::new(),
             secret_manually_edited: false,
             search_query: String::new(),
-            url_input: String::new(),
+            offered_id: None,
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
             queue: Vec::new(),
@@ -254,8 +288,7 @@ impl App {
             token,
             status,
             config,
-        };
-        (app, Task::none())
+        }
     }
 
     /// Signed-in state, derived from the token so the two can never disagree.
@@ -267,7 +300,7 @@ impl App {
     fn save_config(&mut self) {
         if let Err(e) = self.config.save() {
             tracing::warn!("could not save config: {e}");
-            self.status = format!("Could not save settings: {e}");
+            self.status = Some(Status::error(format!("Could not save settings: {e}")));
         }
     }
 
@@ -299,6 +332,10 @@ impl App {
             Message::ToggleTheme => {
                 self.config.dark_mode = !self.config.dark_mode;
                 self.save_config();
+                Task::none()
+            }
+            Message::DismissStatus => {
+                self.status = None;
                 Task::none()
             }
             Message::ToggleTemplateHelp => {
@@ -338,7 +375,9 @@ impl App {
                 Task::none()
             }
             Message::AutoDetectCredentials => {
-                self.status = "Detecting credentials from the Qobuz web player…".into();
+                self.status = Some(Status::progress(
+                    "Detecting credentials from the Qobuz web player…",
+                ));
                 Task::perform(
                     tasks::auto_detect_credentials(),
                     Message::CredentialsDetected,
@@ -354,55 +393,65 @@ impl App {
                 // Detected as a set — the working candidate may not be the one we
                 // picked as primary; let the signing check adopt it silently.
                 self.secret_manually_edited = false;
-                self.status = match self.config.save() {
-                    Ok(()) => "Credentials detected and saved. You can now sign in.".into(),
-                    Err(e) => format!("Credentials detected but could not save: {e}"),
-                };
+                self.status = Some(match self.config.save() {
+                    Ok(()) => {
+                        Status::success("Credentials detected and saved. You can now sign in.")
+                    }
+                    Err(e) => {
+                        Status::error(format!("Credentials detected but could not save: {e}"))
+                    }
+                });
                 Task::none()
             }
             Message::CredentialsDetected(Err(e)) => {
-                self.status = format!("Auto-detect failed: {e}. Enter credentials manually.");
+                self.status = Some(Status::error(format!(
+                    "Auto-detect failed: {e}. Enter credentials manually."
+                )));
                 Task::none()
             }
             Message::CheckSigning => {
                 if !self.signed_in() {
-                    self.status = "Sign in before checking signing.".into();
+                    self.status = Some(Status::error("Sign in before checking signing."));
                     return Task::none();
                 }
                 match self.client() {
                     Ok(client) => {
-                        self.status = "Checking request signing…".into();
+                        self.status = Some(Status::progress("Checking request signing…"));
                         Task::perform(tasks::check_signing_probe(client), Message::SigningChecked)
                     }
                     Err(e) => {
-                        self.status = e;
+                        self.status = Some(Status::error(e));
                         Task::none()
                     }
                 }
             }
             Message::SigningChecked(Ok(SigningCheck::Primary)) => {
-                self.status = "Signing OK — request signatures are being accepted.".into();
+                self.status = Some(Status::success(
+                    "Signing OK — request signatures are being accepted.",
+                ));
                 Task::none()
             }
             Message::SigningChecked(Ok(SigningCheck::Fallback { working_secret })) => {
                 if self.secret_manually_edited {
                     // The user typed a secret that doesn't sign; only a saved
                     // fallback does. Flag it rather than silently overriding.
-                    self.status =
+                    self.status = Some(Status::error(
                         "Entered app_secret is invalid — a saved fallback works; update or \
-                         re-detect it."
-                            .into();
+                         re-detect it.",
+                    ));
                 } else {
                     // The primary came from auto-detect; adopt the candidate that
                     // actually signs so the check reads cleanly from now on.
                     self.config.promote_secret(&working_secret);
-                    self.status = "Signing OK — request signatures are being accepted.".into();
+                    self.status = Some(Status::success(
+                        "Signing OK — request signatures are being accepted.",
+                    ));
                     self.save_config();
                 }
                 Task::none()
             }
             Message::SigningChecked(Err(e)) => {
-                self.status = format!("Signing check failed: {e}");
+                self.status = Some(Status::error(format!("Signing check failed: {e}")));
                 Task::none()
             }
             Message::FolderFormatChanged(v) => {
@@ -433,30 +482,34 @@ impl App {
             Message::DirChosen(None) => Task::none(),
             Message::SaveSettings => {
                 match self.config.save() {
-                    Ok(()) => self.status = "Settings saved.".into(),
-                    Err(e) => self.status = format!("Could not save settings: {e}"),
+                    Ok(()) => self.status = Some(Status::success("Settings saved.")),
+                    Err(e) => {
+                        self.status = Some(Status::error(format!("Could not save settings: {e}")))
+                    }
                 }
                 Task::none()
             }
             Message::LoginToken => {
                 if !self.config.has_app_credentials() {
-                    self.status = "Enter app_id and app_secret first.".into();
+                    self.status = Some(Status::error("Enter app_id and app_secret first."));
                     return Task::none();
                 }
                 let (id, secret) = (self.config.app_id.clone(), self.config.app_secret.clone());
                 let token = self.token_input.trim().to_string();
                 if token.is_empty() {
-                    self.status = "Paste a user_auth_token first.".into();
+                    self.status = Some(Status::error("Paste a user_auth_token first."));
                     return Task::none();
                 }
-                self.status = "Validating token…".into();
+                self.status = Some(Status::progress("Validating token…"));
                 Task::perform(tasks::login_token(id, secret, token), Message::LoggedIn)
             }
             Message::LoggedIn(Ok(token)) => {
                 if let Err(e) = auth::store_token(&token) {
-                    self.status = format!("Signed in, but token could not be stored: {e}");
+                    self.status = Some(Status::error(format!(
+                        "Signed in, but token could not be stored: {e}"
+                    )));
                 } else {
-                    self.status = "Signed in.".into();
+                    self.status = Some(Status::success("Signed in."));
                 }
                 self.token = Some(StoredToken {
                     value: token,
@@ -466,21 +519,21 @@ impl App {
                 Task::none()
             }
             Message::LoggedIn(Err(e)) => {
-                self.status = format!("Sign-in failed: {e}");
+                self.status = Some(Status::error(format!("Sign-in failed: {e}")));
                 Task::none()
             }
             Message::SignOut => {
                 // Only drop the in-memory token when the keyring copy is
                 // actually gone — the displayed state must stay truthful.
-                self.status = match auth::clear_token() {
+                self.status = Some(match auth::clear_token() {
                     Ok(()) => {
                         self.token = None;
-                        "Signed out.".into()
+                        Status::success("Signed out.")
                     }
-                    Err(e) => {
-                        format!("Sign-out failed: the stored token could not be removed: {e}")
-                    }
-                };
+                    Err(e) => Status::error(format!(
+                        "Sign-out failed: the stored token could not be removed: {e}"
+                    )),
+                });
                 Task::none()
             }
 
@@ -490,27 +543,36 @@ impl App {
                 Task::none()
             }
             Message::SearchSubmit => {
-                let q = self.search_query.trim().to_string();
-                if q.is_empty() {
-                    return Task::none();
-                }
+                let (q, bare_id) = match omnibox::classify(&self.search_query) {
+                    Submit::Empty => return Task::none(),
+                    Submit::Add(reference) => {
+                        self.offered_id = None;
+                        return self.update(Message::Add(reference));
+                    }
+                    Submit::BadUrl(e) => {
+                        self.status = Some(Status::error(e));
+                        return Task::none();
+                    }
+                    Submit::Search { query, bare_id } => (query, bare_id),
+                };
+                self.offered_id = bare_id;
                 let client = match self.client() {
                     Ok(c) => c,
                     Err(e) => {
-                        self.status = e;
+                        self.status = Some(Status::error(e));
                         return Task::none();
                     }
                 };
-                self.status = format!("Searching “{q}”…");
+                self.status = Some(Status::progress(format!("Searching “{q}”…")));
                 Task::perform(tasks::do_search(client, q), Message::SearchDone)
             }
             Message::SearchDone(Ok(payload)) => {
                 let n = payload.albums.len() + payload.tracks.len();
-                self.status = if n == 0 {
-                    "No results.".into()
+                self.status = Some(if n == 0 {
+                    Status::info("No results.")
                 } else {
-                    format!("{n} results.")
-                };
+                    Status::success(format!("{n} results."))
+                });
                 // Keep only this search's covers cached — without the eviction
                 // the map grows for every cover ever viewed in the session.
                 let wanted: std::collections::HashSet<String> = payload
@@ -534,7 +596,7 @@ impl App {
                 Task::batch(fetches)
             }
             Message::SearchDone(Err(e)) => {
-                self.status = format!("Search failed: {e}");
+                self.status = Some(Status::error(format!("Search failed: {e}")));
                 Task::none()
             }
             Message::ThumbnailLoaded(url, Ok(bytes)) => {
@@ -543,26 +605,15 @@ impl App {
                 Task::none()
             }
             Message::ThumbnailLoaded(_, Err(())) => Task::none(),
-            Message::UrlChanged(v) => {
-                self.url_input = v;
-                Task::none()
-            }
-            Message::AddUrl => match qobuz_core::catalog::parse_input(&self.url_input) {
-                Ok(reference) => self.update(Message::Add(reference)),
-                Err(e) => {
-                    self.status = e.to_string();
-                    Task::none()
-                }
-            },
             Message::Add(reference) => {
                 let client = match self.client() {
                     Ok(c) => c,
                     Err(e) => {
-                        self.status = e;
+                        self.status = Some(Status::error(e));
                         return Task::none();
                     }
                 };
-                self.status = format!("Resolving {}…", reference.kind());
+                self.status = Some(Status::progress(format!("Resolving {}…", reference.kind())));
                 Task::perform(tasks::resolve(client, reference), Message::Resolved)
             }
             Message::Resolved(Ok(jobs)) => {
@@ -582,12 +633,14 @@ impl App {
                     });
                     added += 1;
                 }
-                self.status = format!("Added {added} track(s) to the queue.");
+                self.status = Some(Status::success(format!(
+                    "Added {added} track(s) to the queue."
+                )));
                 self.screen = Screen::Queue;
                 Task::none()
             }
             Message::Resolved(Err(e)) => {
-                self.status = format!("Could not resolve: {e}");
+                self.status = Some(Status::error(format!("Could not resolve: {e}")));
                 Task::none()
             }
 
@@ -600,7 +653,7 @@ impl App {
                 if jobs.is_empty() {
                     // Unreachable from the button, which hides itself in this
                     // state, but the message can still arrive.
-                    self.status = "Nothing queued to download.".into();
+                    self.status = Some(Status::info("Nothing queued to download."));
                     return Task::none();
                 }
                 self.spawn_downloads(jobs)
@@ -612,7 +665,7 @@ impl App {
                 // the per-track `Cancelled` events to requeue.
                 if let Some(cancel) = &self.cancel {
                     cancel.cancel();
-                    self.status = "Cancelling…".into();
+                    self.status = Some(Status::progress("Cancelling…"));
                 }
                 Task::none()
             }
@@ -634,7 +687,7 @@ impl App {
                     !(it.track_id == track_id && matches!(it.status, ItemStatus::Queued))
                 });
                 if self.queue.len() != before {
-                    self.status = "Removed from queue.".into();
+                    self.status = Some(Status::info("Removed from queue."));
                 }
                 Task::none()
             }
@@ -647,7 +700,7 @@ impl App {
             }
             Message::ClearQueue => {
                 self.queue.clear();
-                self.status = "Queue cleared.".into();
+                self.status = Some(Status::info("Queue cleared."));
                 Task::none()
             }
             Message::Download(ev) => {
@@ -676,7 +729,7 @@ impl App {
                     .iter()
                     .filter(|i| matches!(i.status, ItemStatus::Error(_)))
                     .count();
-                self.status = if was_cancelled {
+                self.status = Some(if was_cancelled {
                     // A track can finish between the click and the stop, so
                     // report what actually completed rather than what was
                     // showing when Cancel was pressed.
@@ -695,12 +748,12 @@ impl App {
                         s.push_str(&format!(", {errors} error(s)"));
                     }
                     s.push('.');
-                    s
+                    Status::info(s)
                 } else if errors == 0 {
-                    "All downloads finished.".into()
+                    Status::success("All downloads finished.")
                 } else {
-                    format!("Downloads finished with {errors} error(s).")
-                };
+                    Status::error(format!("Downloads finished with {errors} error(s)."))
+                });
                 Task::none()
             }
         }
@@ -729,13 +782,13 @@ impl App {
             return Task::none();
         }
         if !self.signed_in() {
-            self.status = "Sign in before downloading.".into();
+            self.status = Some(Status::error("Sign in before downloading."));
             return Task::none();
         }
         let client = match self.client() {
             Ok(c) => c,
             Err(e) => {
-                self.status = e;
+                self.status = Some(Status::error(e));
                 return Task::none();
             }
         };
@@ -748,7 +801,10 @@ impl App {
         }
         let config = self.config.clone();
         self.downloading = true;
-        self.status = format!("Downloading {} track(s)…", jobs.len());
+        self.status = Some(Status::progress(format!(
+            "Downloading {} track(s)…",
+            jobs.len()
+        )));
         // Fresh per batch — a reused token would already be cancelled.
         let cancel = CancellationToken::new();
         self.cancel = Some(cancel.clone());
@@ -814,11 +870,11 @@ impl App {
             text("Qobuz")
                 .size(style::TEXT_TITLE)
                 .font(view::bold())
-                .color(a.mauve),
+                .color(a.brand()),
             text("dl")
                 .size(style::TEXT_TITLE)
                 .font(view::bold())
-                .color(a.blue),
+                .color(a.text),
         ]
         .spacing(2);
         let signed_in = self.signed_in();
@@ -826,9 +882,9 @@ impl App {
             wordmark.width(Length::Fill),
             secondary_button(
                 if self.config.dark_mode {
-                    "☀  Light"
+                    "Light theme"
                 } else {
-                    "★  Dark"
+                    "Dark theme"
                 },
                 Message::ToggleTheme,
             ),
@@ -838,17 +894,12 @@ impl App {
                 "○  signed out"
             })
             .size(style::TEXT_SM)
-            .color(if signed_in { a.green } else { a.red }),
+            .color(if signed_in { a.success() } else { a.error() }),
         ]
         .spacing(style::SPACE_MD)
         .align_y(iced::Alignment::Center);
 
         let tabs = Tabs::new(Message::Navigate)
-            .push(
-                Screen::Settings,
-                TabLabel::Text("Settings".to_owned()),
-                tab_pane(view::settings::settings_view(self)),
-            )
             .push(
                 Screen::Search,
                 TabLabel::Text("Search / Add".to_owned()),
@@ -856,8 +907,13 @@ impl App {
             )
             .push(
                 Screen::Queue,
-                TabLabel::Text("Queue".to_owned()),
+                TabLabel::Text(queue_tab_label(&self.queue)),
                 tab_pane(view::queue::queue_view(self)),
+            )
+            .push(
+                Screen::Settings,
+                TabLabel::Text("Settings".to_owned()),
+                tab_pane(view::settings::settings_view(self)),
             )
             .set_active_tab(&self.screen)
             .tab_bar_style(style::tab_bar)
@@ -866,12 +922,7 @@ impl App {
             .text_size(style::TEXT_BODY as f32)
             .height(Length::Fill);
 
-        let status_bar = container(text(&self.status).size(style::TEXT_SM))
-            .style(style::status_surface)
-            .padding([style::SPACE_SM, style::SPACE_MD])
-            .width(Length::Fill);
-
-        let content = column![header, status_bar, tabs]
+        let content = column![header, view::status_bar(self.status.as_ref()), tabs]
             .spacing(style::SPACE_LG)
             .padding(style::SPACE_XL);
 
@@ -888,4 +939,44 @@ fn tab_pane<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app() -> App {
+        App::from_parts(Config::default(), None, None)
+    }
+
+    #[test]
+    fn dismiss_clears_an_error() {
+        let mut app = app();
+        app.status = Some(Status::error("boom"));
+        let _ = app.update(Message::DismissStatus);
+        assert_eq!(app.status, None);
+    }
+
+    #[test]
+    fn bare_id_query_is_offered_not_enqueued() {
+        let mut app = app();
+        app.search_query = "1989".into();
+        let _ = app.update(Message::SearchSubmit);
+        assert_eq!(app.offered_id, Some(Reference::Album("1989".into())));
+        assert!(app.queue.is_empty());
+    }
+
+    #[test]
+    fn foreign_url_reports_an_error() {
+        let mut app = app();
+        app.search_query = "https://example.com/album/123".into();
+        let _ = app.update(Message::SearchSubmit);
+        assert_eq!(app.status.map(|s| s.kind), Some(status::StatusKind::Error));
+        assert_eq!(app.offered_id, None);
+    }
+
+    #[test]
+    fn app_opens_on_search() {
+        assert_eq!(app().screen, Screen::Search);
+    }
 }

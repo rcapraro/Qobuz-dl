@@ -1,45 +1,109 @@
-//! The Search / Add screen: search results and add-by-URL.
+//! The Search / Add screen: one field that searches or adds a pasted link.
 
-use super::super::{AlbumResult, App, Message, TrackResult};
-use super::{bold, card, gutter_padding, section};
-use crate::style::{self, action_button, field_input, secondary_button};
+use super::super::{AlbumResult, App, Message, Screen, TrackResult};
+use super::{bold, card, gutter_padding, quality_badge};
+use crate::style::{self, action_button, compact_button, field_input};
 use iced::widget::{column, container, image, row, scrollable, text};
 use iced::{Element, Length};
-use iced_aw::widget::badge::Badge;
 use qobuz_core::catalog::Reference;
+use qobuz_core::config::Config;
+
+/// What still blocks searching. Credentials come first: signing in needs them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetupGap {
+    Credentials,
+    SignIn,
+}
+
+fn setup_gap(config: &Config, signed_in: bool) -> Option<SetupGap> {
+    if !config.has_app_credentials() {
+        Some(SetupGap::Credentials)
+    } else if !signed_in {
+        Some(SetupGap::SignIn)
+    } else {
+        None
+    }
+}
 
 pub(in crate::app) fn search_view(app: &App) -> Element<'_, Message> {
-    let search_bar = row![
-        field_input("search albums, tracks, artists…", &app.search_query)
-            .on_input(Message::SearchQueryChanged)
-            .on_submit(Message::SearchSubmit)
-            .width(Length::Fill),
+    let field = row![
+        field_input(
+            "Search albums and tracks, or paste a Qobuz URL",
+            &app.search_query
+        )
+        .on_input(Message::SearchQueryChanged)
+        .on_submit(Message::SearchSubmit)
+        .width(Length::Fill),
         action_button("Search", Message::SearchSubmit),
     ]
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center);
 
-    let url_bar = row![
-        field_input(
-            "paste a Qobuz URL or ID (album / track / playlist)",
-            &app.url_input
-        )
-        .on_input(Message::UrlChanged)
-        .on_submit(Message::AddUrl)
+    let body = match setup_gap(&app.config, app.signed_in()) {
+        Some(gap) => setup_prompt(gap),
+        None => results(app),
+    };
+
+    column![field, body].spacing(style::SPACE_MD).into()
+}
+
+/// Shown in place of results until searching can work, so the first thing a
+/// new user meets is what to do next rather than a failed request.
+fn setup_prompt<'a>(gap: SetupGap) -> Element<'a, Message> {
+    let (title, detail) = match gap {
+        SetupGap::Credentials => (
+            "App credentials needed",
+            "Enter or auto-detect your Qobuz app_id and app_secret in Settings.",
+        ),
+        SetupGap::SignIn => (
+            "Sign-in needed",
+            "Paste your user_auth_token in Settings to sign in.",
+        ),
+    };
+    container(
+        column![
+            text(title).size(style::TEXT_SECTION),
+            text(detail).size(style::TEXT_SM),
+            action_button("Open Settings", Message::Navigate(Screen::Settings)),
+        ]
+        .spacing(style::SPACE_MD)
+        .align_x(iced::Alignment::Center),
+    )
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .into()
+}
+
+/// The explicit "add by ID" action for a query that is also a valid bare ID.
+fn offered_id_row(reference: &Reference) -> Element<'_, Message> {
+    row![
+        text(format!(
+            "“{}” is also a valid Qobuz {} ID.",
+            reference.id(),
+            reference.kind()
+        ))
+        .size(style::TEXT_SM)
         .width(Length::Fill),
-        action_button("Add", Message::AddUrl),
+        compact_button(format!("Add {} by ID", reference.kind()))
+            .on_press(Message::Add(reference.clone())),
     ]
     .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center);
+    .align_y(iced::Alignment::Center)
+    .into()
+}
 
+fn results(app: &App) -> Element<'_, Message> {
     let mut results = column![].spacing(style::SPACE_MD);
+    if let Some(reference) = &app.offered_id {
+        results = results.push(offered_id_row(reference));
+    }
     if !app.results.albums.is_empty() {
         let mut rows = column![].spacing(style::SPACE_XS);
         for a in &app.results.albums {
             let thumb = a.cover.as_ref().and_then(|u| app.thumbnails.get(u));
             rows = rows.push(album_result_row(a, thumb));
         }
-        results = results.push(card("Albums", rows, |a| a.blue));
+        results = results.push(card("Albums", rows));
     }
     if !app.results.tracks.is_empty() {
         let mut rows = column![].spacing(style::SPACE_XS);
@@ -47,18 +111,12 @@ pub(in crate::app) fn search_view(app: &App) -> Element<'_, Message> {
             let thumb = t.cover.as_ref().and_then(|u| app.thumbnails.get(u));
             rows = rows.push(track_result_row(t, thumb));
         }
-        results = results.push(card("Tracks", rows, |a| a.green));
+        results = results.push(card("Tracks", rows));
     }
 
-    column![
-        section("Add by search"),
-        search_bar,
-        section("Add by URL / ID"),
-        url_bar,
-        scrollable(results.padding(gutter_padding())).height(Length::Fill),
-    ]
-    .spacing(style::SPACE_MD)
-    .into()
+    scrollable(results.padding(gutter_padding()))
+        .height(Length::Fill)
+        .into()
 }
 
 /// A result row: optional leading cover, a bold title with an optional artist
@@ -81,21 +139,11 @@ fn add_row<'a>(
     }
     r = r.push(label.width(Length::Fill));
     if hires {
-        r = r.push(hires_badge());
+        r = r.push(quality_badge("Hi-Res"));
     }
-    r.push(secondary_button("Add", Message::Add(reference)))
+    r.push(compact_button("Add").on_press(Message::Add(reference)))
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center)
-        .into()
-}
-
-/// A small "Hi-Res" quality chip, styled like the queue's status badges.
-fn hires_badge<'a>() -> Element<'a, Message> {
-    Badge::new(text("Hi-Res").size(style::TEXT_SM))
-        .style(|theme, _status| {
-            let a = style::accents(theme);
-            style::badge(a.teal, a.on_accent)
-        })
         .into()
 }
 
@@ -142,4 +190,42 @@ fn album_result_row<'a>(
         album.hires,
         Reference::Album(album.id.clone()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(app_id: &str, app_secret: &str) -> Config {
+        Config {
+            app_id: app_id.into(),
+            app_secret: app_secret.into(),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn missing_credentials_come_first() {
+        assert_eq!(
+            setup_gap(&config("", ""), false),
+            Some(SetupGap::Credentials)
+        );
+        assert_eq!(
+            setup_gap(&config("123", ""), true),
+            Some(SetupGap::Credentials)
+        );
+    }
+
+    #[test]
+    fn signed_out_with_credentials_needs_sign_in() {
+        assert_eq!(
+            setup_gap(&config("123", "s3cr3t"), false),
+            Some(SetupGap::SignIn)
+        );
+    }
+
+    #[test]
+    fn complete_setup_has_no_gap() {
+        assert_eq!(setup_gap(&config("123", "s3cr3t"), true), None);
+    }
 }

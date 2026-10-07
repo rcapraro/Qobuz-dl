@@ -77,11 +77,15 @@ only need to do this once unless you sign out or the token is revoked.
 
 1. **Sign in** once in Settings (see [Signing in](#signing-in)) and pick your
    preferred **quality** — if Qobuz serves a lower quality than requested, the
-   app tags and names the file by what was actually delivered.
-2. **Find music** on the Search screen: type a query, or paste a Qobuz **URL or
-   ID** for an album, track, or playlist.
-3. **Queue downloads** — each track appears in the Queue with live progress;
-   failed items can be retried.
+   app tags and names the file by what was actually delivered. Until setup is
+   complete, the Search screen says what is missing and links to Settings.
+2. **Find music** on the Search screen, which the app opens on. One field does
+   both: type a query to search, or paste a Qobuz **URL** for an album, track,
+   or playlist to add it directly. A query that is also a valid bare **ID** is
+   searched, with an extra action to add it by ID.
+3. **Queue downloads** — each track appears in the Queue with live progress,
+   and the Queue tab shows how many tracks are still to process. Failed items
+   can be retried.
 4. **Files land** in your configured download directory, organized by the
    folder/track **path templates** (e.g. `{artist}/{album}` /
    `{track_number} - {title}`), with tags and cover art embedded.

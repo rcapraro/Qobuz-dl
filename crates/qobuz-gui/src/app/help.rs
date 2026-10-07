@@ -3,7 +3,7 @@
 
 use super::view::{card, section};
 use super::Message;
-use crate::style::{self, secondary_button};
+use crate::style::{self, compact_button};
 use iced::widget::{column, row, text, Column};
 use iced::{Element, Length};
 
@@ -112,8 +112,8 @@ const TRACK_EXAMPLES: &[&str] = &[
 fn example_row<'a>(template: &'a str, apply: Message) -> Element<'a, Message> {
     row![
         style::mono(template).width(Length::Fill),
-        secondary_button("Copy", Message::CopyTemplate(template.to_string())),
-        secondary_button("Apply", apply),
+        compact_button("Copy").on_press(Message::CopyTemplate(template.to_string())),
+        compact_button("Apply").on_press(apply),
     ]
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center)
@@ -169,5 +169,5 @@ pub(super) fn template_help() -> Element<'static, Message> {
 
     let body = column![section("Placeholders"), list, rules, folder_ex, track_ex,]
         .spacing(style::SPACE_SM);
-    card("Template help", body, |a| a.sky)
+    card("Template help", body)
 }

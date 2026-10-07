@@ -20,6 +20,8 @@ pub const SPACE_XL: u16 = 24;
 pub const CONTROL_HEIGHT: f32 = 36.0;
 /// Minimum width for action buttons so same-variant buttons line up.
 pub const BUTTON_MIN_WIDTH: f32 = 130.0;
+/// Height of compact row-action buttons, so they sit inside a list row.
+pub const COMPACT_HEIGHT: f32 = 28.0;
 /// Internal padding for text inputs.
 pub const INPUT_PADDING: u16 = 8;
 /// Fixed width for form labels so they form an aligned column.
@@ -44,7 +46,7 @@ pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
     let (bg, fg) = match status {
         button::Status::Hovered | button::Status::Pressed => (a.sky, a.on_accent),
         button::Status::Disabled => (a.surface1, a.text),
-        button::Status::Active => (a.blue, a.on_accent),
+        button::Status::Active => (a.primary(), a.on_accent),
     };
     button::Style {
         background: Some(Background::Color(bg)),
@@ -59,7 +61,9 @@ pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
 }
 
 /// A consistently sized button with a centered label and no press handler yet.
-pub fn styled_button<'a, M>(label: &'a str) -> Button<'a, M> {
+/// iced has no minimum width, so a label longer than `BUTTON_MIN_WIDTH` needs
+/// the caller to override with `.width(Length::Shrink)` to avoid clipping.
+pub fn styled_button<'a, M>(label: impl text::IntoFragment<'a>) -> Button<'a, M> {
     button(text(label).center())
         .padding([SPACE_XS, SPACE_MD])
         .width(Length::Fixed(BUTTON_MIN_WIDTH))
@@ -68,18 +72,33 @@ pub fn styled_button<'a, M>(label: &'a str) -> Button<'a, M> {
 }
 
 /// Primary action button with a consistent size.
-pub fn action_button<'a, M: Clone + 'a>(label: &'a str, msg: M) -> Button<'a, M> {
+pub fn action_button<'a, M: Clone + 'a>(
+    label: impl text::IntoFragment<'a>,
+    msg: M,
+) -> Button<'a, M> {
     styled_button(label).on_press(msg)
 }
 
 /// Secondary (muted) action button with a consistent size.
-pub fn secondary_button<'a, M: Clone + 'a>(label: &'a str, msg: M) -> Button<'a, M> {
+pub fn secondary_button<'a, M: Clone + 'a>(
+    label: impl text::IntoFragment<'a>,
+    msg: M,
+) -> Button<'a, M> {
     action_button(label, msg).style(button::secondary)
 }
 
+/// A small secondary button for actions inside a list row, sized to its label.
+/// No press handler yet, so callers can disable it with `on_press_maybe`.
+pub fn compact_button<'a, M>(label: impl text::IntoFragment<'a>) -> Button<'a, M> {
+    button(text(label).size(TEXT_SM).center())
+        .padding([SPACE_XS, SPACE_SM])
+        .height(Length::Fixed(COMPACT_HEIGHT))
+        .style(button::secondary)
+}
+
 /// A compact round "?" help toggle sized to sit at the right of a card header.
-/// Shows "×" while its help panel is open. Styled to read on the accent header:
-/// an `on_accent` outline that fills on hover.
+/// Shows "×" while its help panel is open. Outlined on the card header and
+/// filled on hover.
 pub fn help_button<'a, M: Clone + 'a>(shown: bool, msg: M) -> Button<'a, M> {
     button(text(if shown { "×" } else { "?" }).center().size(TEXT_BODY))
         .width(Length::Fixed(26.0))
@@ -90,16 +109,14 @@ pub fn help_button<'a, M: Clone + 'a>(shown: bool, msg: M) -> Button<'a, M> {
             let a = accents(theme);
             let filled = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                // A muted Catppuccin surface (lighter than `on_accent`) so the
-                // icon reads softly on the accent header rather than near-black.
                 background: Some(Background::Color(if filled {
-                    a.surface1
+                    a.surface2
                 } else {
                     a.surface0
                 })),
                 text_color: a.text,
                 border: Border {
-                    color: a.on_accent,
+                    color: a.surface2,
                     width: 1.5,
                     radius: 13.0.into(),
                 },
@@ -167,9 +184,39 @@ pub struct Accents {
     pub teal: Color,
     pub green: Color,
     pub yellow: Color,
-    pub peach: Color,
     pub red: Color,
     pub mauve: Color,
+}
+
+/// Each accent carries exactly one meaning across the app. Views ask for a
+/// role, never a hue, so that meaning is decided here and nowhere else.
+impl Accents {
+    pub fn brand(&self) -> Color {
+        self.mauve
+    }
+
+    /// The primary action and the active selection.
+    pub fn primary(&self) -> Color {
+        self.blue
+    }
+
+    pub fn success(&self) -> Color {
+        self.green
+    }
+
+    /// Work under way: downloading, tagging, a pending request.
+    pub fn progress(&self) -> Color {
+        self.yellow
+    }
+
+    pub fn error(&self) -> Color {
+        self.red
+    }
+
+    /// Audio quality (Hi-Res, delivered format) — used by nothing else.
+    pub fn quality(&self) -> Color {
+        self.teal
+    }
 }
 
 /// Resolve the accent palette for the active flavor (defaults to Macchiato).
@@ -201,7 +248,6 @@ const MACCHIATO: Accents = Accents {
     teal: rgb(0x8bd5ca),
     green: rgb(0xa6da95),
     yellow: rgb(0xeed49f),
-    peach: rgb(0xf5a97f),
     red: rgb(0xed8796),
     mauve: rgb(0xc6a0f6),
 };
@@ -219,7 +265,6 @@ const LATTE: Accents = Accents {
     teal: rgb(0x179299),
     green: rgb(0x40a02b),
     yellow: rgb(0xdf8e1d),
-    peach: rgb(0xfe640b),
     red: rgb(0xd20f39),
     mauve: rgb(0x8839ef),
 };
@@ -246,14 +291,15 @@ pub fn thumb_placeholder(theme: &Theme) -> container::Style {
     }
 }
 
-/// A subtle raised surface for the status line, set off from the app background.
-pub fn status_surface(theme: &Theme) -> container::Style {
+/// A subtle raised surface for the status line, set off from the app background
+/// and outlined in the accent for the message's kind.
+pub fn status_surface(theme: &Theme, outline: Color) -> container::Style {
     let a = accents(theme);
     container::Style {
         background: Some(Background::Color(a.surface0)),
         text_color: Some(a.text),
         border: Border {
-            color: a.surface2,
+            color: outline,
             width: 1.0,
             radius: 6.0.into(),
         },
@@ -280,7 +326,7 @@ pub fn tab_bar(theme: &Theme, status: Status) -> tab_bar::Style {
     // Status::Hovered on hover, and Status::Disabled for inactive tabs.
     match status {
         Status::Active => {
-            base.tab_label_background = Background::Color(a.blue);
+            base.tab_label_background = Background::Color(a.primary());
             base.text_color = a.on_accent;
         }
         Status::Hovered => {
@@ -311,22 +357,23 @@ pub fn panel(theme: &Theme) -> container::Style {
     }
 }
 
-/// Card style: an accent-colored header over a `surface0` body (a shade below
+/// Card style: a neutral `surface1` header over a `surface0` body (a shade below
 /// the tabs' surface), with a defined border so each section reads as a panel.
-pub fn card(a: &Accents, head: Color) -> card::Style {
+pub fn card(theme: &Theme) -> card::Style {
+    let a = accents(theme);
     let surface = Background::Color(a.surface0);
     card::Style {
         background: surface,
         border_radius: 10.0,
         border_width: 1.0,
         border_color: a.surface2,
-        head_background: Background::Color(head),
-        head_text_color: a.on_accent,
+        head_background: Background::Color(a.surface1),
+        head_text_color: a.text,
         body_background: surface,
         body_text_color: a.text,
         foot_background: surface,
         foot_text_color: a.text,
-        close_color: a.on_accent,
+        close_color: a.text,
     }
 }
 
@@ -338,5 +385,28 @@ pub fn badge(background: Color, text_color: Color) -> badge::Style {
         border_width: 0.0,
         border_color: None,
         text_color,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roles_map_to_their_hue_in_both_flavors() {
+        for a in [LATTE, MACCHIATO] {
+            assert_eq!(a.brand(), a.mauve);
+            assert_eq!(a.primary(), a.blue);
+            assert_eq!(a.success(), a.green);
+            assert_eq!(a.progress(), a.yellow);
+            assert_eq!(a.error(), a.red);
+            assert_eq!(a.quality(), a.teal);
+        }
+    }
+
+    #[test]
+    fn flavor_follows_theme() {
+        assert_eq!(accents(&theme(false)).base, LATTE.base);
+        assert_eq!(accents(&theme(true)).base, MACCHIATO.base);
     }
 }

@@ -1,8 +1,8 @@
 //! The Queue screen: per-track rows with status badges and overall progress.
 
 use super::super::{startable, App, ItemStatus, Message, QueueItem};
-use super::gutter_padding;
-use crate::style::{self, styled_button};
+use super::{gutter_padding, quality_badge};
+use crate::style::{self, compact_button, secondary_button, styled_button};
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text};
 use iced::{Element, Font, Length};
 use iced_aw::widget::badge::Badge;
@@ -33,26 +33,15 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
             .align_y(iced::Alignment::Center);
 
     if failed > 0 && !app.downloading {
-        // Built manually (not `secondary_button`) so the label can be an
-        // owned String rather than a borrowed `&str`.
         header = header.push(
-            button(text(format!("Retry failed ({failed})")).center())
-                .padding([style::SPACE_XS, style::SPACE_MD])
-                .height(Length::Fixed(style::CONTROL_HEIGHT))
-                .style(button::secondary)
-                .on_press(Message::RetryFailed),
+            secondary_button(format!("Retry failed ({failed})"), Message::RetryFailed)
+                .width(Length::Shrink),
         );
     }
 
     // The queue is known non-empty here — the empty case returned above.
     if !app.downloading {
-        header = header.push(
-            button(text("Clear queue").center())
-                .padding([style::SPACE_XS, style::SPACE_MD])
-                .height(Length::Fixed(style::CONTROL_HEIGHT))
-                .style(button::secondary)
-                .on_press(Message::ClearQueue),
-        );
+        header = header.push(secondary_button("Clear queue", Message::ClearQueue));
     }
 
     // Only while a batch runs. Disabled once cancellation is under way, so it
@@ -60,16 +49,11 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
     if app.downloading {
         let cancelling = app.cancelling();
         header = header.push(
-            button(
-                text(if cancelling {
-                    "Cancelling…"
-                } else {
-                    "Cancel"
-                })
-                .center(),
-            )
-            .padding([style::SPACE_XS, style::SPACE_MD])
-            .height(Length::Fixed(style::CONTROL_HEIGHT))
+            styled_button(if cancelling {
+                "Cancelling…"
+            } else {
+                "Cancel"
+            })
             .style(button::secondary)
             .on_press_maybe((!cancelling).then_some(Message::CancelDownloads)),
         );
@@ -185,10 +169,9 @@ fn overall_progress(queue: &[QueueItem]) -> f32 {
 fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, iced::Color) {
     match status {
         ItemStatus::Queued => |a| (a.surface2, a.text),
-        ItemStatus::Downloading => |a| (a.blue, a.on_accent),
-        ItemStatus::Tagging => |a| (a.yellow, a.on_accent),
-        ItemStatus::Done(_) => |a| (a.green, a.on_accent),
-        ItemStatus::Error(_) => |a| (a.red, a.on_accent),
+        ItemStatus::Downloading | ItemStatus::Tagging => |a| (a.progress(), a.on_accent),
+        ItemStatus::Done(_) => |a| (a.success(), a.on_accent),
+        ItemStatus::Error(_) => |a| (a.error(), a.on_accent),
     }
 }
 
@@ -201,7 +184,7 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
         // Pad to a constant width so the badge doesn't shift as digits change.
         ItemStatus::Downloading => format!("downloading {:>3.0}%", fraction * 100.0),
         ItemStatus::Tagging => "tagging".into(),
-        ItemStatus::Done(q) => format!("done · {q}"),
+        ItemStatus::Done(_) => "done".into(),
         ItemStatus::Error(e) => format!("error: {e}"),
     };
 
@@ -220,11 +203,13 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
 
+    if let ItemStatus::Done(delivered) = &it.status {
+        top = top.push(quality_badge(delivered.as_str()));
+    }
+
     // A failed track can be relaunched (disabled while a batch is running).
     if matches!(it.status, ItemStatus::Error(_)) {
-        let retry = button(text("Retry").size(style::TEXT_SM))
-            .padding([style::SPACE_XS, style::SPACE_SM])
-            .style(button::secondary)
+        let retry = compact_button("Retry")
             .on_press_maybe((!downloading).then_some(Message::RetryTrack(it.track_id)));
         top = top.push(retry);
     }
@@ -232,9 +217,7 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
     // A still-queued track can be removed from the queue (disabled while a
     // batch is running).
     if matches!(it.status, ItemStatus::Queued) {
-        let remove = button(text("Remove").size(style::TEXT_SM))
-            .padding([style::SPACE_XS, style::SPACE_SM])
-            .style(button::secondary)
+        let remove = compact_button("Remove")
             .on_press_maybe((!downloading).then_some(Message::DequeueTrack(it.track_id)));
         top = top.push(remove);
     }
@@ -250,7 +233,7 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::QueueItem;
+    use super::super::super::{queue_tab_label, remaining, QueueItem};
     use super::*;
     use qobuz_core::engine::Job;
 
@@ -411,5 +394,33 @@ mod tests {
             item(None, 0, ItemStatus::Queued),
         ];
         assert_eq!(overall_progress(&queue), 0.5);
+    }
+
+    #[test]
+    fn queue_tab_has_no_count_when_empty() {
+        assert_eq!(queue_tab_label(&[]), "Queue");
+    }
+
+    #[test]
+    fn queue_tab_has_no_count_when_all_settled() {
+        let queue = vec![
+            item(None, 0, done()),
+            item(None, 0, ItemStatus::Error("x".into())),
+        ];
+        assert_eq!(remaining(&queue), 0);
+        assert_eq!(queue_tab_label(&queue), "Queue");
+    }
+
+    #[test]
+    fn queue_tab_counts_queued_downloading_and_tagging() {
+        let queue = vec![
+            item(None, 0, ItemStatus::Queued),
+            item(Some(100), 50, ItemStatus::Downloading),
+            item(None, 0, ItemStatus::Tagging),
+            item(None, 0, done()),
+            item(None, 0, ItemStatus::Error("x".into())),
+        ];
+        assert_eq!(remaining(&queue), 3);
+        assert_eq!(queue_tab_label(&queue), "Queue (3)");
     }
 }
