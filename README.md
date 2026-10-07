@@ -82,7 +82,9 @@ only need to do this once unless you sign out or the token is revoked.
 2. **Find music** on the Search screen, which the app opens on. One field does
    both: type a query to search, or paste a Qobuz **URL** for an album, track,
    or playlist to add it directly. A query that is also a valid bare **ID** is
-   searched, with an extra action to add it by ID.
+   searched, with an extra action to add it by ID. **Add** on an album queues
+   all of it. Click its title or cover instead to open the album, check the
+   tracks you want, and add only those. **Back** returns to your results.
 3. **Queue downloads** — each track appears in the Queue with live progress,
    and the Queue tab shows how many tracks are still to process. Failed items
    can be retried.

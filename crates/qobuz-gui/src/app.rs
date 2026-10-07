@@ -1,8 +1,9 @@
 //! The iced desktop application: settings, search/add, and download queue.
 
 use crate::style::{self, secondary_button};
+use album::{AlbumDetail, DetailState};
 use iced::futures::{future, SinkExt};
-use iced::widget::{column, container, row, text};
+use iced::widget::{column, container, row, scrollable, text};
 use iced::{Element, Length, Task, Theme};
 use iced_aw::widget::{tab_bar::TabLabel, tabs::Tabs};
 use omnibox::Submit;
@@ -16,6 +17,7 @@ use status::Status;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+mod album;
 mod help;
 mod omnibox;
 mod paging;
@@ -195,6 +197,10 @@ pub struct App {
     offered_id: Option<Reference>,
     /// Bumped on every submitted search.
     search_generation: u64,
+    /// An album opened from the results, shown in their place on the Search tab.
+    album: Option<AlbumDetail>,
+    /// Where the results list was scrolled to, restored when an album closes.
+    results_offset: scrollable::AbsoluteOffset,
     results: SearchPayload,
     /// Album cover thumbnails, keyed by cover URL, loaded lazily.
     thumbnails: HashMap<String, iced::widget::image::Handle>,
@@ -253,6 +259,18 @@ enum Message {
     ShowMore(Kind),
     MoreAlbums(u64, Result<Page<AlbumResult>, String>),
     MoreTracks(u64, Result<Page<TrackResult>, String>),
+    ResultsScrolled(scrollable::Viewport),
+
+    // Album detail.
+    OpenAlbum(AlbumResult),
+    /// Keyed by album id so a response for an album no longer open is dropped.
+    AlbumLoaded(String, Result<Vec<Job>, String>),
+    RetryAlbum,
+    CloseAlbum,
+    ToggleTrack(i64),
+    SelectAllTracks,
+    SelectNoTracks,
+    AddSelected,
     ThumbnailLoaded(String, Result<Vec<u8>, ()>),
     Add(Reference),
     Resolved(Result<Vec<Job>, String>),
@@ -312,6 +330,8 @@ impl App {
             search_query: String::new(),
             offered_id: None,
             search_generation: 0,
+            album: None,
+            results_offset: scrollable::AbsoluteOffset::default(),
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
             queue: Vec::new(),
@@ -588,6 +608,8 @@ impl App {
                     Submit::Search { query, bare_id } => (query, bare_id),
                 };
                 self.offered_id = bare_id;
+                self.album = None;
+                self.results_offset = scrollable::AbsoluteOffset::default();
                 let client = match self.client() {
                     Ok(c) => c,
                     Err(e) => {
@@ -630,6 +652,66 @@ impl App {
                 Task::none()
             }
             Message::ShowMore(kind) => self.show_more(kind),
+            Message::ResultsScrolled(viewport) => {
+                self.results_offset = viewport.absolute_offset();
+                Task::none()
+            }
+
+            // ---- Album detail ----
+            Message::OpenAlbum(header) => {
+                self.album = Some(AlbumDetail::loading(header));
+                self.load_album()
+            }
+            Message::RetryAlbum => {
+                if let Some(album) = &mut self.album {
+                    album.state = DetailState::Loading;
+                }
+                self.load_album()
+            }
+            Message::AlbumLoaded(id, result) => {
+                let Some(album) = self.album.as_mut().filter(|a| a.id() == id) else {
+                    return Task::none();
+                };
+                match result {
+                    Ok(jobs) => album.loaded(jobs),
+                    Err(e) => album.state = DetailState::Failed(e),
+                }
+                Task::none()
+            }
+            Message::CloseAlbum => {
+                self.album = None;
+                // The results subtree is rebuilt when the detail closes, which
+                // resets its scroll; put it back where the user left it.
+                scrollable::scroll_to(view::search::results_id(), self.results_offset)
+            }
+            Message::ToggleTrack(track_id) => {
+                if let Some(album) = &mut self.album {
+                    album.toggle(track_id);
+                }
+                Task::none()
+            }
+            Message::SelectAllTracks => {
+                if let Some(album) = &mut self.album {
+                    album.select_all();
+                }
+                Task::none()
+            }
+            Message::SelectNoTracks => {
+                if let Some(album) = &mut self.album {
+                    album.select_none();
+                }
+                Task::none()
+            }
+            Message::AddSelected => {
+                let Some(album) = &self.album else {
+                    return Task::none();
+                };
+                let jobs = album::selected_jobs(album.jobs(), &album.selected);
+                if jobs.is_empty() {
+                    return Task::none();
+                }
+                self.update(Message::Resolved(Ok(jobs)))
+            }
             Message::MoreAlbums(generation, _) | Message::MoreTracks(generation, _)
                 if generation != self.search_generation =>
             {
@@ -811,6 +893,27 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// Fetch the open album's tracks. Built on `resolve`, so the jobs it
+    /// returns can be enqueued as they are, without fetching the album again.
+    fn load_album(&mut self) -> Task<Message> {
+        let Some(id) = self.album.as_ref().map(|a| a.id().to_owned()) else {
+            return Task::none();
+        };
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(album) = &mut self.album {
+                    album.state = DetailState::Failed(e);
+                }
+                return Task::none();
+            }
+        };
+        let reference = Reference::Album(id.clone());
+        Task::perform(tasks::resolve(client, reference), move |r| {
+            Message::AlbumLoaded(id.clone(), r)
+        })
     }
 
     /// Request the next page of one results section, unless one is already in
@@ -1193,6 +1296,103 @@ mod tests {
         assert!(!app.results.albums.loading);
         assert!(app.results.albums.has_more());
         assert_eq!(app.status.map(|s| s.kind), Some(status::StatusKind::Error));
+    }
+
+    /// Dummy credentials let `client()` build; the returned task never runs.
+    fn open_album(app: &mut App, id: &str) {
+        app.config.app_id = "1".into();
+        app.config.app_secret = "s".into();
+        let _ = app.update(Message::OpenAlbum(album(id)));
+    }
+
+    #[test]
+    fn missing_credentials_fail_the_album_in_place() {
+        let mut app = app();
+        let _ = app.update(Message::OpenAlbum(album("a1")));
+        assert!(matches!(app.album.unwrap().state, DetailState::Failed(_)));
+    }
+
+    fn queued_ids(app: &App) -> Vec<i64> {
+        app.queue.iter().map(|it| it.track_id).collect()
+    }
+
+    #[test]
+    fn opening_an_album_leaves_results_alone() {
+        let mut app = app_with_results();
+        open_album(&mut app, "a1");
+        let detail = app.album.as_ref().unwrap();
+        assert_eq!(detail.id(), "a1");
+        assert!(matches!(detail.state, DetailState::Loading));
+        assert_eq!(album_ids(&app), ["a1", "a2"]);
+        assert!(app.queue.is_empty());
+    }
+
+    #[test]
+    fn loaded_album_selects_every_track() {
+        let mut app = app();
+        open_album(&mut app, "a1");
+        let jobs = vec![album::tests::job(1, 1, None), album::tests::job(2, 1, None)];
+        let _ = app.update(Message::AlbumLoaded("a1".into(), Ok(jobs)));
+        assert_eq!(app.album.unwrap().selected.len(), 2);
+    }
+
+    #[test]
+    fn response_for_a_closed_album_is_dropped() {
+        let mut app = app();
+        open_album(&mut app, "a1");
+        let _ = app.update(Message::CloseAlbum);
+        let _ = app.update(Message::AlbumLoaded("a1".into(), Ok(vec![])));
+        assert!(app.album.is_none());
+    }
+
+    #[test]
+    fn response_for_another_album_is_dropped() {
+        let mut app = app();
+        open_album(&mut app, "a2");
+        let jobs = vec![album::tests::job(1, 1, None)];
+        let _ = app.update(Message::AlbumLoaded("a1".into(), Ok(jobs)));
+        assert!(matches!(app.album.unwrap().state, DetailState::Loading));
+    }
+
+    fn app_with_loaded_album() -> App {
+        let mut app = app();
+        open_album(&mut app, "a1");
+        let jobs = (1..=3).map(|id| album::tests::job(id, 1, None)).collect();
+        let _ = app.update(Message::AlbumLoaded("a1".into(), Ok(jobs)));
+        app
+    }
+
+    #[test]
+    fn add_selected_enqueues_subset_in_album_order() {
+        let mut app = app_with_loaded_album();
+        let _ = app.update(Message::ToggleTrack(2));
+        let _ = app.update(Message::AddSelected);
+        assert_eq!(queued_ids(&app), [1, 3]);
+        assert!(app.album.is_some());
+    }
+
+    #[test]
+    fn add_selected_skips_tracks_already_queued() {
+        let mut app = app_with_loaded_album();
+        let _ = app.update(Message::AddSelected);
+        let _ = app.update(Message::AddSelected);
+        assert_eq!(queued_ids(&app), [1, 2, 3]);
+    }
+
+    #[test]
+    fn empty_selection_adds_nothing() {
+        let mut app = app_with_loaded_album();
+        let _ = app.update(Message::SelectNoTracks);
+        let _ = app.update(Message::AddSelected);
+        assert!(app.queue.is_empty());
+    }
+
+    #[test]
+    fn new_search_closes_the_album() {
+        let mut app = app_with_loaded_album();
+        app.search_query = "kind of blue".into();
+        let _ = app.update(Message::SearchSubmit);
+        assert!(app.album.is_none());
     }
 
     #[test]

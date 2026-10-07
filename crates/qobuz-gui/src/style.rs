@@ -33,6 +33,8 @@ pub const PROGRESS_HEIGHT: f32 = 8.0;
 pub const TEXT_SM: u16 = 13;
 pub const TEXT_BODY: u16 = 15;
 pub const TEXT_SECTION: u16 = 18;
+/// A page-level heading inside a screen, such as an album title.
+pub const TEXT_HEADLINE: u16 = 22;
 /// App title in the header (the "Qobuz-dl" wordmark).
 pub const TEXT_TITLE: u16 = 26;
 
@@ -177,10 +179,13 @@ pub struct Accents {
     pub surface1: Color,
     pub surface2: Color,
     pub text: Color,
+    /// Secondary text (Catppuccin `subtext0`): metadata, numbers, captions.
+    pub subtext: Color,
     /// Readable text color to place on top of a bright accent fill.
     pub on_accent: Color,
     pub blue: Color,
     pub sky: Color,
+    pub lavender: Color,
     pub teal: Color,
     pub green: Color,
     pub yellow: Color,
@@ -213,6 +218,12 @@ impl Accents {
         self.red
     }
 
+    /// A page's identity panel, such as an opened album's header. Never used
+    /// for status, actions, or quality.
+    pub fn highlight(&self) -> Color {
+        self.lavender
+    }
+
     /// Audio quality (Hi-Res, delivered format) — used by nothing else.
     pub fn quality(&self) -> Color {
         self.teal
@@ -242,9 +253,11 @@ const MACCHIATO: Accents = Accents {
     surface1: rgb(0x494d64),
     surface2: rgb(0x5b6078),
     text: rgb(0xcad3f5),
+    subtext: rgb(0xa5adcb),
     on_accent: rgb(0x181926),
     blue: rgb(0x8aadf4),
     sky: rgb(0x91d7e3),
+    lavender: rgb(0xb7bdf8),
     teal: rgb(0x8bd5ca),
     green: rgb(0xa6da95),
     yellow: rgb(0xeed49f),
@@ -259,9 +272,11 @@ const LATTE: Accents = Accents {
     surface1: rgb(0xbcc0cc),
     surface2: rgb(0xacb0be),
     text: rgb(0x4c4f69),
+    subtext: rgb(0x6c6f85),
     on_accent: rgb(0xeff1f5),
     blue: rgb(0x1e66f5),
     sky: rgb(0x04a5e5),
+    lavender: rgb(0x7287fd),
     teal: rgb(0x179299),
     green: rgb(0x40a02b),
     yellow: rgb(0xdf8e1d),
@@ -275,6 +290,86 @@ const LATTE: Accents = Accents {
 /// whether or not a scrollbar is shown, and reserves room on the right so the
 /// scrollbar never clips a card's edge or border.
 pub const SCROLLBAR_GUTTER: f32 = SPACE_MD as f32;
+
+/// Secondary text, a step quieter than body text, for metadata, numbers, and
+/// captions, so titles carry the visual weight.
+pub fn muted_text(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(accents(theme).subtext),
+    }
+}
+
+/// A raised, bordered region inside a tab, grouping related content the way a
+/// card does but without a header.
+pub fn surface(theme: &Theme) -> container::Style {
+    let a = accents(theme);
+    container::Style {
+        background: Some(Background::Color(a.surface0)),
+        text_color: Some(a.text),
+        border: Border {
+            color: a.surface2,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+/// A page's identity block, such as an opened album's header: a soft wash of
+/// the highlight accent with a matching border, set apart from neutral
+/// [`surface`]s without resembling any status, action, or quality colour.
+pub fn hero(theme: &Theme) -> container::Style {
+    let a = accents(theme);
+    let highlight = a.highlight();
+    container::Style {
+        background: Some(Background::Color(Color {
+            a: 0.12,
+            ..highlight
+        })),
+        text_color: Some(a.text),
+        border: Border {
+            color: Color {
+                a: 0.5,
+                ..highlight
+            },
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+/// A table's column-header band: a solid, stronger grey than the [`stripe`]d
+/// rows, so it reads as the table's head rather than one of its rows.
+pub fn table_head(theme: &Theme) -> container::Style {
+    let a = accents(theme);
+    container::Style {
+        background: Some(Background::Color(a.surface2)),
+        text_color: Some(a.text),
+        border: Border {
+            radius: 6.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
+/// Shading for every other row of a table on a [`surface`], so long lists stay
+/// easy to follow across their columns.
+pub fn stripe(theme: &Theme) -> container::Style {
+    let a = accents(theme);
+    container::Style {
+        background: Some(Background::Color(Color {
+            a: 0.45,
+            ..a.surface1
+        })),
+        border: Border {
+            radius: 6.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
 
 /// A neutral rounded box shown in place of an album cover while its thumbnail
 /// loads (or when none is available).
@@ -401,6 +496,7 @@ mod tests {
             assert_eq!(a.progress(), a.yellow);
             assert_eq!(a.error(), a.red);
             assert_eq!(a.quality(), a.teal);
+            assert_eq!(a.highlight(), a.lavender);
         }
     }
 

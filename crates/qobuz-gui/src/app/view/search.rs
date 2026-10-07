@@ -2,7 +2,8 @@
 
 use super::super::paging::{Kind, Section};
 use super::super::{AlbumResult, App, Message, Screen, TrackResult};
-use super::{bold, card_el, gutter_padding, quality_badge};
+use super::album::album_view;
+use super::{bold, card_el, cover, gutter_padding, quality_badge};
 use crate::style::{self, action_button, compact_button, field_input, styled_button};
 use iced::widget::{button, column, container, image, row, scrollable, text, Column};
 use iced::{Element, Length};
@@ -40,12 +41,19 @@ pub(in crate::app) fn search_view(app: &App) -> Element<'_, Message> {
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center);
 
-    let body = match setup_gap(&app.config, app.signed_in()) {
-        Some(gap) => setup_prompt(gap),
-        None => results(app),
+    let body = match (setup_gap(&app.config, app.signed_in()), &app.album) {
+        (Some(gap), _) => setup_prompt(gap),
+        (None, Some(album)) => album_view(album, &app.thumbnails),
+        (None, None) => results(app),
     };
 
     column![field, body].spacing(style::SPACE_MD).into()
+}
+
+/// The results list's scrollable, addressed to restore its offset when an
+/// album's detail closes.
+pub(in crate::app) fn results_id() -> scrollable::Id {
+    scrollable::Id::new("search-results")
 }
 
 /// Shown in place of results until searching can work, so the first thing a
@@ -118,6 +126,8 @@ fn results(app: &App) -> Element<'_, Message> {
     }
 
     scrollable(results.padding(gutter_padding()))
+        .id(results_id())
+        .on_scroll(Message::ResultsScrolled)
         .height(Length::Fill)
         .into()
 }
@@ -157,25 +167,34 @@ fn results_card<'a, T>(
     )
 }
 
-/// A result row: optional leading cover, a bold title with an optional artist
-/// subtitle, an optional Hi-Res badge, and an Add button.
+const THUMB_SIZE: f32 = 52.0;
+
+/// A result row: cover, a bold title over the artist, an optional Hi-Res
+/// badge, and an Add button. With `open`, the cover and title become one
+/// control, kept separate from Add so opening never enqueues.
 fn add_row<'a>(
-    cover: Option<Element<'a, Message>>,
+    cover: Element<'a, Message>,
     title: &'a str,
-    artist: Option<&'a str>,
+    artist: &'a str,
     hires: bool,
     reference: Reference,
+    open: Option<Message>,
 ) -> Element<'a, Message> {
-    let mut label = column![text(title).font(bold())].spacing(2);
-    if let Some(artist) = artist {
-        label = label.push(text(artist).size(style::TEXT_SM));
-    }
+    let label = column![text(title).font(bold()), text(artist).size(style::TEXT_SM)].spacing(2);
+    let lead = row![cover, label]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center);
+    let lead: Element<'a, Message> = match open {
+        Some(msg) => button(lead)
+            .padding(0)
+            .style(button::text)
+            .on_press(msg)
+            .width(Length::Fill)
+            .into(),
+        None => lead.width(Length::Fill).into(),
+    };
 
-    let mut r = row![];
-    if let Some(cover) = cover {
-        r = r.push(cover);
-    }
-    r = r.push(label.width(Length::Fill));
+    let mut r = row![lead];
     if hires {
         r = r.push(quality_badge("Hi-Res"));
     }
@@ -185,48 +204,33 @@ fn add_row<'a>(
         .into()
 }
 
-/// A 52×52 cover thumbnail, or a placeholder while it loads / when there is no
-/// cover. Shared by album and track rows.
-fn cover_element<'a>(thumb: Option<&image::Handle>) -> Element<'a, Message> {
-    const SIZE: f32 = 52.0;
-    match thumb {
-        Some(handle) => image(handle.clone())
-            .width(Length::Fixed(SIZE))
-            .height(Length::Fixed(SIZE))
-            .into(),
-        None => container(text(""))
-            .width(Length::Fixed(SIZE))
-            .height(Length::Fixed(SIZE))
-            .style(style::thumb_placeholder)
-            .into(),
-    }
-}
-
 /// A track result row with its album cover thumbnail.
 fn track_result_row<'a>(
     track: &'a TrackResult,
     thumb: Option<&image::Handle>,
 ) -> Element<'a, Message> {
     add_row(
-        Some(cover_element(thumb)),
+        cover(thumb, THUMB_SIZE),
         &track.title,
-        Some(&track.artist),
+        &track.artist,
         track.hires,
         Reference::Track(track.id.clone()),
+        None,
     )
 }
 
-/// An album result row with its cover thumbnail (or a placeholder while loading).
+/// An album result row; its cover and title open the album's detail.
 fn album_result_row<'a>(
     album: &'a AlbumResult,
     thumb: Option<&image::Handle>,
 ) -> Element<'a, Message> {
     add_row(
-        Some(cover_element(thumb)),
+        cover(thumb, THUMB_SIZE),
         &album.title,
-        Some(&album.artist),
+        &album.artist,
         album.hires,
         Reference::Album(album.id.clone()),
+        Some(Message::OpenAlbum(album.clone())),
     )
 }
 

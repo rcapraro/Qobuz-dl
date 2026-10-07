@@ -1,5 +1,6 @@
 //! Per-screen view builders plus the widget helpers they share.
 
+pub(super) mod album;
 pub(super) mod queue;
 pub(super) mod search;
 pub(super) mod settings;
@@ -7,7 +8,7 @@ pub(super) mod settings;
 use super::status::{Status, StatusKind};
 use super::Message;
 use crate::style::{self, compact_button};
-use iced::widget::{container, row, text};
+use iced::widget::{container, image, row, text};
 use iced::{Alignment, Color, Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 
@@ -75,6 +76,21 @@ pub(super) fn status_bar(status: Option<&Status>) -> Element<'_, Message> {
         .center_y(Length::Fixed(style::CONTROL_HEIGHT))
         .width(Length::Fill)
         .into()
+}
+
+/// A square cover image, or a placeholder while it loads or when there is none.
+pub(super) fn cover<'a>(thumb: Option<&image::Handle>, size: f32) -> Element<'a, Message> {
+    match thumb {
+        Some(handle) => image(handle.clone())
+            .width(Length::Fixed(size))
+            .height(Length::Fixed(size))
+            .into(),
+        None => container(text(""))
+            .width(Length::Fixed(size))
+            .height(Length::Fixed(size))
+            .style(style::thumb_placeholder)
+            .into(),
+    }
 }
 
 /// A small audio-quality chip ("Hi-Res", a delivered format), styled like the
