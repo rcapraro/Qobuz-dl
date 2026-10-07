@@ -25,13 +25,14 @@ quality, cover art, file organization, and tags.
 
 ## Screenshots
 
-| Search | Queue | Settings |
-| --- | --- | --- |
-| ![Search screen — album results with cover art](docs/screenshots/search.png) | ![Queue screen — per-track progress and status](docs/screenshots/queue.png) | ![Settings screen — account, quality, and path templates](docs/screenshots/settings.png) |
+| Search | Album | Queue | Settings |
+| --- | --- | --- | --- |
+| ![Search screen — album results with cover art and Hi-Res badges](docs/screenshots/search.png) | ![Album screen — track list with selection and durations](docs/screenshots/album.png) | ![Queue screen — downloads grouped by album, with open-folder actions](docs/screenshots/queue.png) | ![Settings screen — account, quality, path templates, and notifications](docs/screenshots/settings.png) |
 
-*Search for albums, tracks, or playlists — or paste a Qobuz URL. The queue shows
-per-track progress with retry for failed items. Settings hold your credentials,
-quality preference, and path templates.*
+*Search for albums and tracks, or paste a Qobuz URL. Open an album to pick the
+tracks you want. The queue groups downloads by album, with per-track progress,
+retry, and buttons to open the downloaded files. Settings hold your
+credentials, quality preference, path templates, and notifications.*
 
 ## Installation
 
