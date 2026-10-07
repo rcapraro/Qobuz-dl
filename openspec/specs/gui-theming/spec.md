@@ -90,7 +90,8 @@ The application SHALL align form fields, their labels, and associated action but
 
 Each Catppuccin accent color SHALL carry one meaning across the application:
 mauve for brand, blue for the primary action and active selection, green for
-success, yellow for in-progress, red for error, and teal for audio quality.
+success, yellow for in-progress, red for error, teal for audio quality, and
+lavender for a page's identity panel, such as an opened album's header.
 Section and card headers SHALL use neutral surfaces rather than an accent.
 
 #### Scenario: Card headers are neutral
@@ -112,3 +113,8 @@ Section and card headers SHALL use neutral surfaces rather than an accent.
 
 - **WHEN** the user switches between the light and dark themes
 - **THEN** each accent keeps the same meaning, drawn from the active flavor's palette
+
+#### Scenario: Identity panels use their own accent
+
+- **WHEN** a screen shows the identity panel of what it displays, such as an opened album's header
+- **THEN** the panel uses a soft lavender wash with a lavender border, and lavender is used for no status, action, or quality indicator
