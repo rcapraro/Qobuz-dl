@@ -20,8 +20,10 @@ quality, cover art, file organization, and tags.
 - Configurable **download directory** and **folder/track path templates**.
 - Full audio **tag** writing (FLAC / MP3 / M4A).
 - Find music by **search** — albums and tracks page independently with **Show more** — or by pasting a **Qobuz URL / ID** (album, track, playlist).
+- **Open an album** from search to see its track list and add only the tracks you pick.
 - **Download queue** with per-item progress, bounded concurrency, and retry, and a
   **desktop notification** when a batch finishes while the app is in the background.
+- **Open the downloaded files** from the queue: an album's folder, or a single track shown in its folder.
 
 ## Screenshots
 
