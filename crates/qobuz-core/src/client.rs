@@ -216,10 +216,40 @@ impl QobuzClient {
 
     // ---- Search ---------------------------------------------------------
 
-    pub async fn search(&self, query: &str, limit: u32) -> Result<SearchResults> {
+    // Per-type endpoints rather than `catalog/search`: they take an `offset`,
+    // so one type can be paged without refetching the other, and every page
+    // of a type comes from the same ranking.
+
+    /// One page of album matches, starting at `offset`.
+    pub async fn search_albums(&self, query: &str, limit: u32, offset: u32) -> Result<AlbumList> {
+        let r = self
+            .search_page("album/search", query, limit, offset)
+            .await?;
+        Ok(r.albums.unwrap_or_default())
+    }
+
+    /// One page of track matches, starting at `offset`.
+    pub async fn search_tracks(&self, query: &str, limit: u32, offset: u32) -> Result<TrackList> {
+        let r = self
+            .search_page("track/search", query, limit, offset)
+            .await?;
+        Ok(r.tracks.unwrap_or_default())
+    }
+
+    async fn search_page(
+        &self,
+        endpoint: &str,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<SearchResults> {
         self.get(
-            "catalog/search",
-            &[("query", query.to_string()), ("limit", limit.to_string())],
+            endpoint,
+            &[
+                ("query", query.to_string()),
+                ("limit", limit.to_string()),
+                ("offset", offset.to_string()),
+            ],
         )
         .await
     }
@@ -336,7 +366,7 @@ impl QobuzClient {
     }
 
     /// Check request signing end-to-end, validating the *entered* (primary)
-    /// secret specifically. Looks up real tracks via the unsigned `search`, then
+    /// secret specifically. Looks up real tracks via the unsigned `search_tracks`, then
     /// signs `track/getFileUrl`: if the primary secret signs, returns
     /// `SigningCheck::Primary`; if only a saved candidate signs, returns
     /// `SigningCheck::Fallback` with that secret (so the caller can adopt it).
@@ -346,11 +376,13 @@ impl QobuzClient {
         if self.app_secrets.is_empty() {
             return Err(Error::MissingAppCredentials("app_secret"));
         }
-        let results = self.search("music", 5).await?;
-        let track_ids: Vec<i64> = results
-            .tracks
-            .map(|tl| tl.items.into_iter().map(|t| t.id).collect())
-            .unwrap_or_default();
+        let track_ids: Vec<i64> = self
+            .search_tracks("music", 5, 0)
+            .await?
+            .items
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
         if track_ids.is_empty() {
             return Err(Error::NoFileUrl);
         }

@@ -19,7 +19,7 @@ quality, cover art, file organization, and tags.
 - **Embed cover art** into downloaded files.
 - Configurable **download directory** and **folder/track path templates**.
 - Full audio **tag** writing (FLAC / MP3 / M4A).
-- Find music by **search** or by pasting a **Qobuz URL / ID** (album, track, playlist).
+- Find music by **search** — albums and tracks page independently with **Show more** — or by pasting a **Qobuz URL / ID** (album, track, playlist).
 - **Download queue** with per-item progress, bounded concurrency, and retry.
 
 ## Screenshots

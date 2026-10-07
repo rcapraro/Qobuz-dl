@@ -1,9 +1,12 @@
 //! Async wrappers around `qobuz-core` calls, run via `Task::perform`. Each is a
 //! thin `map_err(|e| e.to_string())` boundary — no logic lives here.
 
+use super::paging::{Page, Section, PAGE_SIZE};
 use super::{AlbumResult, SearchPayload, TrackResult};
+use iced::futures::future;
 use qobuz_core::catalog::Reference;
 use qobuz_core::engine::{self, Job};
+use qobuz_core::models::{AlbumList, Image, TrackList};
 use qobuz_core::{AppCredentials, QobuzClient, SigningCheck};
 use std::path::PathBuf;
 
@@ -38,53 +41,90 @@ pub(super) async fn login_token(
     Ok(token)
 }
 
+/// The first page of albums and of tracks, fetched concurrently.
 pub(super) async fn do_search(client: QobuzClient, query: String) -> Result<SearchPayload, String> {
-    let r = client.search(&query, 25).await.map_err(|e| e.to_string())?;
-    let mut payload = SearchPayload::default();
-    if let Some(list) = r.albums {
-        for a in list.items {
-            let hires = a.is_hires();
-            let title = a.title.clone();
-            let artist = a.artist_name().to_string();
-            // Prefer a small image for the thumbnail to keep downloads cheap.
-            let cover = a.image.as_ref().and_then(|i| {
-                i.small
-                    .clone()
-                    .or_else(|| i.thumbnail.clone())
-                    .or_else(|| i.large.clone())
-            });
-            payload.albums.push(AlbumResult {
-                id: a.id,
-                title,
-                artist,
-                cover,
-                hires,
-            });
-        }
+    let (albums, tracks) = future::try_join(
+        client.search_albums(&query, PAGE_SIZE, 0),
+        client.search_tracks(&query, PAGE_SIZE, 0),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(SearchPayload {
+        query,
+        albums: Section::first(album_page(albums)),
+        tracks: Section::first(track_page(tracks)),
+    })
+}
+
+pub(super) async fn more_albums(
+    client: QobuzClient,
+    query: String,
+    offset: u32,
+) -> Result<Page<AlbumResult>, String> {
+    client
+        .search_albums(&query, PAGE_SIZE, offset)
+        .await
+        .map(album_page)
+        .map_err(|e| e.to_string())
+}
+
+pub(super) async fn more_tracks(
+    client: QobuzClient,
+    query: String,
+    offset: u32,
+) -> Result<Page<TrackResult>, String> {
+    client
+        .search_tracks(&query, PAGE_SIZE, offset)
+        .await
+        .map(track_page)
+        .map_err(|e| e.to_string())
+}
+
+/// Prefer a small image for the thumbnail to keep downloads cheap.
+fn thumbnail(image: Option<&Image>) -> Option<String> {
+    image.and_then(|i| {
+        i.small
+            .clone()
+            .or_else(|| i.thumbnail.clone())
+            .or_else(|| i.large.clone())
+    })
+}
+
+fn album_page(list: AlbumList) -> Page<AlbumResult> {
+    let items = list
+        .items
+        .into_iter()
+        .map(|a| AlbumResult {
+            hires: a.is_hires(),
+            artist: a.artist_name().to_string(),
+            cover: thumbnail(a.image.as_ref()),
+            title: a.title,
+            id: a.id,
+        })
+        .collect();
+    Page {
+        items,
+        total: list.total,
     }
-    if let Some(list) = r.tracks {
-        for t in list.items {
-            // Use the track's album cover as its preview thumbnail.
-            let cover = t
-                .album
-                .as_ref()
-                .and_then(|al| al.image.as_ref())
-                .and_then(|i| {
-                    i.small
-                        .clone()
-                        .or_else(|| i.thumbnail.clone())
-                        .or_else(|| i.large.clone())
-                });
-            payload.tracks.push(TrackResult {
-                id: t.id.to_string(),
-                title: t.title.clone(),
-                artist: t.artist_name().to_string(),
-                cover,
-                hires: t.is_hires(),
-            });
-        }
+}
+
+fn track_page(list: TrackList) -> Page<TrackResult> {
+    let items = list
+        .items
+        .into_iter()
+        .map(|t| TrackResult {
+            id: t.id.to_string(),
+            hires: t.is_hires(),
+            artist: t.artist_name().to_string(),
+            // A track's preview is its album's cover.
+            cover: thumbnail(t.album.as_ref().and_then(|al| al.image.as_ref())),
+            title: t.title,
+        })
+        .collect();
+    Page {
+        items,
+        total: list.total,
     }
-    Ok(payload)
 }
 
 /// Download the bytes of an album cover thumbnail via the core client.

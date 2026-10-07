@@ -183,6 +183,10 @@ pub struct AlbumList {
     pub items: Vec<Album>,
     #[serde(default)]
     pub total: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 /// Response from `track/getFileUrl` — a temporary, expiring CDN URL plus the
@@ -204,23 +208,14 @@ pub struct FileUrl {
     pub restrictions: Option<serde_json::Value>,
 }
 
-/// Aggregated `catalog/search` (or per-type search) result.
+/// A per-type search response (`album/search`, `track/search`): one page of
+/// the requested type, the other field absent.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SearchResults {
     #[serde(default)]
     pub albums: Option<AlbumList>,
     #[serde(default)]
     pub tracks: Option<TrackList>,
-    #[serde(default)]
-    pub artists: Option<ArtistSearchList>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct ArtistSearchList {
-    #[serde(default)]
-    pub items: Vec<Artist>,
-    #[serde(default)]
-    pub total: Option<u32>,
 }
 
 #[cfg(test)]
@@ -269,5 +264,29 @@ mod tests {
         let json = r#"{"id":"2","title":"Y"}"#;
         let a: Album = serde_json::from_str(json).unwrap();
         assert!(!a.is_hires());
+    }
+
+    #[test]
+    fn album_search_page_carries_paging_fields() {
+        let json = r#"{"query":"x","albums":{"items":[{"id":"1","title":"X"}],
+            "total":140,"offset":25,"limit":25}}"#;
+        let page = serde_json::from_str::<SearchResults>(json)
+            .unwrap()
+            .albums
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.total, Some(140));
+        assert_eq!(page.offset, Some(25));
+        assert_eq!(page.limit, Some(25));
+    }
+
+    #[test]
+    fn search_page_without_total_still_parses() {
+        let json = r#"{"tracks":{"items":[{"id":7,"title":"T"}]}}"#;
+        let r: SearchResults = serde_json::from_str(json).unwrap();
+        assert!(r.albums.is_none());
+        let page = r.tracks.unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.total, None);
     }
 }

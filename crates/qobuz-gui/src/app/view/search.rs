@@ -1,9 +1,10 @@
 //! The Search / Add screen: one field that searches or adds a pasted link.
 
+use super::super::paging::{Kind, Section};
 use super::super::{AlbumResult, App, Message, Screen, TrackResult};
-use super::{bold, card, gutter_padding, quality_badge};
-use crate::style::{self, action_button, compact_button, field_input};
-use iced::widget::{column, container, image, row, scrollable, text};
+use super::{bold, card_el, gutter_padding, quality_badge};
+use crate::style::{self, action_button, compact_button, field_input, styled_button};
+use iced::widget::{button, column, container, image, row, scrollable, text, Column};
 use iced::{Element, Length};
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
@@ -97,26 +98,63 @@ fn results(app: &App) -> Element<'_, Message> {
     if let Some(reference) = &app.offered_id {
         results = results.push(offered_id_row(reference));
     }
-    if !app.results.albums.is_empty() {
+    let albums = &app.results.albums;
+    if !albums.items.is_empty() {
         let mut rows = column![].spacing(style::SPACE_XS);
-        for a in &app.results.albums {
+        for a in &albums.items {
             let thumb = a.cover.as_ref().and_then(|u| app.thumbnails.get(u));
             rows = rows.push(album_result_row(a, thumb));
         }
-        results = results.push(card("Albums", rows));
+        results = results.push(results_card("Albums", albums, Kind::Albums, rows));
     }
-    if !app.results.tracks.is_empty() {
+    let tracks = &app.results.tracks;
+    if !tracks.items.is_empty() {
         let mut rows = column![].spacing(style::SPACE_XS);
-        for t in &app.results.tracks {
+        for t in &tracks.items {
             let thumb = t.cover.as_ref().and_then(|u| app.thumbnails.get(u));
             rows = rows.push(track_result_row(t, thumb));
         }
-        results = results.push(card("Tracks", rows));
+        results = results.push(results_card("Tracks", tracks, Kind::Tracks, rows));
     }
 
     scrollable(results.padding(gutter_padding()))
         .height(Length::Fill)
         .into()
+}
+
+/// `Albums · 25 of 140`, or `Albums · 25` while the total is unknown.
+fn section_title<T>(name: &str, section: &Section<T>) -> String {
+    let shown = section.items.len();
+    match section.total {
+        Some(total) => format!("{name} · {shown} of {total}"),
+        None => format!("{name} · {shown}"),
+    }
+}
+
+/// A results card with its count in the header and, while more remain, a
+/// "Show more" control at the foot of its rows.
+fn results_card<'a, T>(
+    name: &str,
+    section: &Section<T>,
+    kind: Kind,
+    rows: Column<'a, Message>,
+) -> Element<'a, Message> {
+    let mut body = rows;
+    if section.has_more() {
+        body = body.push(
+            styled_button(if section.loading {
+                "Loading…"
+            } else {
+                "Show more"
+            })
+            .style(button::secondary)
+            .on_press_maybe((!section.loading).then_some(Message::ShowMore(kind))),
+        );
+    }
+    card_el(
+        text(section_title(name, section)).size(style::TEXT_SECTION),
+        body,
+    )
 }
 
 /// A result row: optional leading cover, a bold title with an optional artist
@@ -227,5 +265,25 @@ mod tests {
     #[test]
     fn complete_setup_has_no_gap() {
         assert_eq!(setup_gap(&config("123", "s3cr3t"), true), None);
+    }
+
+    fn section(n: usize, total: Option<u32>) -> Section<()> {
+        Section::first(super::super::super::paging::Page {
+            items: vec![(); n],
+            total,
+        })
+    }
+
+    #[test]
+    fn title_shows_count_of_total() {
+        assert_eq!(
+            section_title("Albums", &section(25, Some(140))),
+            "Albums · 25 of 140"
+        );
+    }
+
+    #[test]
+    fn title_without_total_shows_count() {
+        assert_eq!(section_title("Tracks", &section(3, None)), "Tracks · 3");
     }
 }

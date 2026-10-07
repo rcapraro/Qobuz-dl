@@ -6,6 +6,7 @@ use iced::widget::{column, container, row, text};
 use iced::{Element, Length, Task, Theme};
 use iced_aw::widget::{tab_bar::TabLabel, tabs::Tabs};
 use omnibox::Submit;
+use paging::{Kind, Page, Section};
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
@@ -17,6 +18,7 @@ use std::path::PathBuf;
 
 mod help;
 mod omnibox;
+mod paging;
 mod status;
 mod tasks;
 mod view;
@@ -98,6 +100,26 @@ fn remaining(queue: &[QueueItem]) -> usize {
         .count()
 }
 
+/// Settle a "Show more" response on its section: clear the loading flag, then
+/// either append the page and return the covers it brought in, or hand back
+/// the error with the existing rows left as they were.
+fn more_loaded<T>(
+    section: &mut Section<T>,
+    result: Result<Page<T>, String>,
+    id: impl Fn(&T) -> &str,
+    cover: impl Fn(&T) -> Option<&String>,
+) -> Result<Vec<String>, String> {
+    section.loading = false;
+    let page = result?;
+    let covers = page
+        .items
+        .iter()
+        .filter_map(|it| cover(it).cloned())
+        .collect();
+    section.append(page, id);
+    Ok(covers)
+}
+
 fn queue_tab_label(queue: &[QueueItem]) -> String {
     match remaining(queue) {
         0 => "Queue".to_owned(),
@@ -126,11 +148,13 @@ struct TrackResult {
     hires: bool,
 }
 
-/// Search results reduced to display-ready entries.
+/// Search results reduced to display-ready entries, each type paged on its own.
+/// `query` is what "Show more" asks for, independent of later edits to the field.
 #[derive(Debug, Clone, Default)]
 struct SearchPayload {
-    albums: Vec<AlbumResult>,
-    tracks: Vec<TrackResult>,
+    query: String,
+    albums: Section<AlbumResult>,
+    tracks: Section<TrackResult>,
 }
 
 /// How the active session's token came to be — shown in the Account card.
@@ -169,6 +193,8 @@ pub struct App {
     /// The last query, when it was also a valid bare ID, offered as an explicit
     /// add action above the results.
     offered_id: Option<Reference>,
+    /// Bumped on every submitted search.
+    search_generation: u64,
     results: SearchPayload,
     /// Album cover thumbnails, keyed by cover URL, loaded lazily.
     thumbnails: HashMap<String, iced::widget::image::Handle>,
@@ -221,7 +247,12 @@ enum Message {
     // Search / add.
     SearchQueryChanged(String),
     SearchSubmit,
-    SearchDone(Result<SearchPayload, String>),
+    /// Search and page responses carry the search generation they were
+    /// requested under, so a response from a superseded search is dropped.
+    SearchDone(u64, Result<SearchPayload, String>),
+    ShowMore(Kind),
+    MoreAlbums(u64, Result<Page<AlbumResult>, String>),
+    MoreTracks(u64, Result<Page<TrackResult>, String>),
     ThumbnailLoaded(String, Result<Vec<u8>, ()>),
     Add(Reference),
     Resolved(Result<Vec<Job>, String>),
@@ -280,6 +311,7 @@ impl App {
             secret_manually_edited: false,
             search_query: String::new(),
             offered_id: None,
+            search_generation: 0,
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
             queue: Vec::new(),
@@ -564,10 +596,17 @@ impl App {
                     }
                 };
                 self.status = Some(Status::progress(format!("Searching “{q}”…")));
-                Task::perform(tasks::do_search(client, q), Message::SearchDone)
+                self.search_generation += 1;
+                let generation = self.search_generation;
+                Task::perform(tasks::do_search(client, q), move |r| {
+                    Message::SearchDone(generation, r)
+                })
             }
-            Message::SearchDone(Ok(payload)) => {
-                let n = payload.albums.len() + payload.tracks.len();
+            Message::SearchDone(generation, _) if generation != self.search_generation => {
+                Task::none()
+            }
+            Message::SearchDone(_, Ok(payload)) => {
+                let n = payload.albums.items.len() + payload.tracks.items.len();
                 self.status = Some(if n == 0 {
                     Status::info("No results.")
                 } else {
@@ -577,27 +616,42 @@ impl App {
                 // the map grows for every cover ever viewed in the session.
                 let wanted: std::collections::HashSet<String> = payload
                     .albums
+                    .items
                     .iter()
                     .filter_map(|a| a.cover.clone())
-                    .chain(payload.tracks.iter().filter_map(|t| t.cover.clone()))
+                    .chain(payload.tracks.items.iter().filter_map(|t| t.cover.clone()))
                     .collect();
                 self.thumbnails.retain(|url, _| wanted.contains(url));
-                // Lazily load album cover thumbnails not already cached.
-                let fetches: Vec<Task<Message>> = wanted
-                    .into_iter()
-                    .filter(|url| !self.thumbnails.contains_key(url))
-                    .map(|url| {
-                        Task::perform(tasks::fetch_thumbnail(url.clone()), move |res| {
-                            Message::ThumbnailLoaded(url.clone(), res)
-                        })
-                    })
-                    .collect();
                 self.results = payload;
-                Task::batch(fetches)
+                self.fetch_missing_covers(wanted)
             }
-            Message::SearchDone(Err(e)) => {
+            Message::SearchDone(_, Err(e)) => {
                 self.status = Some(Status::error(format!("Search failed: {e}")));
                 Task::none()
+            }
+            Message::ShowMore(kind) => self.show_more(kind),
+            Message::MoreAlbums(generation, _) | Message::MoreTracks(generation, _)
+                if generation != self.search_generation =>
+            {
+                Task::none()
+            }
+            Message::MoreAlbums(_, result) => {
+                let covers = more_loaded(
+                    &mut self.results.albums,
+                    result,
+                    |a| &a.id,
+                    |a| a.cover.as_ref(),
+                );
+                self.after_more(Kind::Albums, covers)
+            }
+            Message::MoreTracks(_, result) => {
+                let covers = more_loaded(
+                    &mut self.results.tracks,
+                    result,
+                    |t| &t.id,
+                    |t| t.cover.as_ref(),
+                );
+                self.after_more(Kind::Tracks, covers)
             }
             Message::ThumbnailLoaded(url, Ok(bytes)) => {
                 self.thumbnails
@@ -757,6 +811,76 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// Request the next page of one results section, unless one is already in
+    /// flight or none remains.
+    fn show_more(&mut self, kind: Kind) -> Task<Message> {
+        let (loading, has_more, offset) = match kind {
+            Kind::Albums => {
+                let s = &self.results.albums;
+                (s.loading, s.has_more(), s.next_offset())
+            }
+            Kind::Tracks => {
+                let s = &self.results.tracks;
+                (s.loading, s.has_more(), s.next_offset())
+            }
+        };
+        if loading || !has_more {
+            return Task::none();
+        }
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(e) => {
+                self.status = Some(Status::error(e));
+                return Task::none();
+            }
+        };
+        let query = self.results.query.clone();
+        let generation = self.search_generation;
+        match kind {
+            Kind::Albums => {
+                self.results.albums.loading = true;
+                Task::perform(tasks::more_albums(client, query, offset), move |r| {
+                    Message::MoreAlbums(generation, r)
+                })
+            }
+            Kind::Tracks => {
+                self.results.tracks.loading = true;
+                Task::perform(tasks::more_tracks(client, query, offset), move |r| {
+                    Message::MoreTracks(generation, r)
+                })
+            }
+        }
+    }
+
+    /// Report a failed page, or fetch the covers an appended page brought in.
+    fn after_more(&mut self, kind: Kind, covers: Result<Vec<String>, String>) -> Task<Message> {
+        match covers {
+            Ok(urls) => self.fetch_missing_covers(urls),
+            Err(e) => {
+                let what = match kind {
+                    Kind::Albums => "albums",
+                    Kind::Tracks => "tracks",
+                };
+                self.status = Some(Status::error(format!("Could not load more {what}: {e}")));
+                Task::none()
+            }
+        }
+    }
+
+    /// Lazily load cover thumbnails not already cached.
+    fn fetch_missing_covers(&self, urls: impl IntoIterator<Item = String>) -> Task<Message> {
+        let fetches: Vec<Task<Message>> = urls
+            .into_iter()
+            .filter(|url| !self.thumbnails.contains_key(url))
+            .map(|url| {
+                Task::perform(tasks::fetch_thumbnail(url.clone()), move |res| {
+                    Message::ThumbnailLoaded(url.clone(), res)
+                })
+            })
+            .collect();
+        Task::batch(fetches)
     }
 
     /// Whether a cancel has been requested and the batch is still winding down.
@@ -978,5 +1102,104 @@ mod tests {
     #[test]
     fn app_opens_on_search() {
         assert_eq!(app().screen, Screen::Search);
+    }
+
+    fn album(id: &str) -> AlbumResult {
+        AlbumResult {
+            id: id.into(),
+            title: id.into(),
+            artist: "a".into(),
+            cover: None,
+            hires: false,
+        }
+    }
+
+    fn track(id: &str) -> TrackResult {
+        TrackResult {
+            id: id.into(),
+            title: id.into(),
+            artist: "a".into(),
+            cover: None,
+            hires: false,
+        }
+    }
+
+    fn albums(ids: &[&str], total: Option<u32>) -> Page<AlbumResult> {
+        Page {
+            items: ids.iter().map(|id| album(id)).collect(),
+            total,
+        }
+    }
+
+    /// An app showing results for search generation 1, with albums loading.
+    fn app_with_results() -> App {
+        let mut app = app();
+        app.search_generation = 1;
+        app.results = SearchPayload {
+            query: "q".into(),
+            albums: Section::first(albums(&["a1", "a2"], Some(10))),
+            tracks: Section::first(Page {
+                items: vec![track("t1")],
+                total: Some(1),
+            }),
+        };
+        app.results.albums.loading = true;
+        app
+    }
+
+    fn album_ids(app: &App) -> Vec<&str> {
+        app.results
+            .albums
+            .items
+            .iter()
+            .map(|a| a.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn stale_search_results_are_dropped() {
+        let mut app = app_with_results();
+        app.search_generation = 2;
+        let old = SearchPayload {
+            query: "old".into(),
+            ..SearchPayload::default()
+        };
+        let _ = app.update(Message::SearchDone(1, Ok(old)));
+        assert_eq!(app.results.query, "q");
+    }
+
+    #[test]
+    fn more_albums_appends_to_albums_only() {
+        let mut app = app_with_results();
+        let _ = app.update(Message::MoreAlbums(1, Ok(albums(&["a2", "a3"], Some(10)))));
+        assert_eq!(album_ids(&app), ["a1", "a2", "a3"]);
+        assert!(!app.results.albums.loading);
+        assert_eq!(app.results.tracks.items.len(), 1);
+    }
+
+    #[test]
+    fn stale_page_is_discarded() {
+        let mut app = app_with_results();
+        app.search_generation = 2;
+        let _ = app.update(Message::MoreAlbums(1, Ok(albums(&["a3"], Some(10)))));
+        assert_eq!(album_ids(&app), ["a1", "a2"]);
+    }
+
+    #[test]
+    fn failed_page_keeps_rows_and_allows_retry() {
+        let mut app = app_with_results();
+        let _ = app.update(Message::MoreAlbums(1, Err("boom".into())));
+        assert_eq!(album_ids(&app), ["a1", "a2"]);
+        assert!(!app.results.albums.loading);
+        assert!(app.results.albums.has_more());
+        assert_eq!(app.status.map(|s| s.kind), Some(status::StatusKind::Error));
+    }
+
+    #[test]
+    fn show_more_is_ignored_while_loading() {
+        let mut app = app_with_results();
+        let _ = app.update(Message::ShowMore(Kind::Albums));
+        assert!(app.status.is_none());
+        assert!(app.results.albums.loading);
     }
 }
