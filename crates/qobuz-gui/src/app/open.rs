@@ -37,18 +37,17 @@ fn platform_command(target: &Target) -> Command {
     cmd
 }
 
+/// Explorer splits its command line on commas as well as spaces, while Rust
+/// quotes an argument only when it contains a space, so a path like `A,B`
+/// would be cut in two. The path is quoted by hand and passed raw, and
+/// `/select,` must arrive in the same argument as it.
 #[cfg(windows)]
 fn platform_command(target: &Target) -> Command {
+    use std::os::windows::process::CommandExt;
     let mut cmd = Command::new("explorer");
     match target {
-        Target::Folder(dir) => cmd.arg(dir),
-        // Explorer only honours `/select,` when it and the path arrive as one
-        // argument.
-        Target::File(file) => {
-            let mut select = std::ffi::OsString::from("/select,");
-            select.push(file);
-            cmd.arg(select)
-        }
+        Target::Folder(dir) => cmd.raw_arg(format!("\"{}\"", dir.display())),
+        Target::File(file) => cmd.raw_arg(format!("/select,\"{}\"", file.display())),
     };
     cmd
 }

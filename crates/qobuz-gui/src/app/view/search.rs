@@ -185,9 +185,7 @@ fn add_row<'a>(
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
     let lead: Element<'a, Message> = match open {
-        Some(msg) => button(lead)
-            .padding(0)
-            .style(button::text)
+        Some(msg) => style::content_button(lead)
             .on_press(msg)
             .width(Length::Fill)
             .into(),

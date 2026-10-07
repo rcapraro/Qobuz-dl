@@ -139,8 +139,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
             compact_button("Open folder").on_press(Message::OpenAlbumFolder(album.id.clone())),
         );
     }
-    let has_removable = group.items.iter().any(|it| removable(&it.status));
-    if has_removable && !app.downloading {
+    if group.items.iter().any(|it| app.can_remove(it)) {
         head = head.push(compact_button("Remove").on_press(Message::RemoveGroup(album.id.clone())));
     }
 
@@ -153,7 +152,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     if !collapsed {
         let mut rows = column![].spacing(style::SPACE_SM);
         for it in &group.items {
-            rows = rows.push(queue_row(it, app.downloading));
+            rows = rows.push(queue_row(it, app.downloading, app.can_remove(it)));
         }
         // Indented under the header so rows read as belonging to the album.
         body = body.push(container(rows).padding(iced::Padding {
@@ -316,7 +315,7 @@ fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, ic
     }
 }
 
-fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
+fn queue_row(it: &QueueItem, downloading: bool, can_remove: bool) -> Element<'_, Message> {
     // The badge label is derived from the same fraction the bar renders, so the
     // two can't drift apart.
     let fraction = row_fraction(it);
@@ -367,10 +366,10 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
     }
 
     // Any settled track can be taken out of the list, files untouched
-    // (disabled while a batch is running).
+    // (disabled while its batch is running).
     if removable(&it.status) {
         let remove = compact_button("Remove")
-            .on_press_maybe((!downloading).then_some(Message::RemoveTrack(it.track_id)));
+            .on_press_maybe(can_remove.then_some(Message::RemoveTrack(it.track_id)));
         top = top.push(remove);
     }
 

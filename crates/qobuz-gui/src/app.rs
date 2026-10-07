@@ -32,29 +32,12 @@ fn window_icon() -> Option<iced::window::Icon> {
     iced::window::icon::from_file_data(include_bytes!("../assets/icon.png"), None).ok()
 }
 
-/// Which app macOS shows as the sender of our notifications. It can be set
-/// only once per process and must precede the first notification. The lookup
-/// finds the installed Qobuz-dl.app; a dev binary has none and resolves to
-/// Finder. Hard-coding our identifier instead would fail on a dev binary and
-/// spend the one attempt, leaving no way to fall back.
-#[cfg(target_os = "macos")]
-fn set_notification_identity() {
-    let bundle = notify_rust::get_bundle_identifier_or_default("Qobuz-dl");
-    if let Err(e) = notify_rust::set_application(&bundle) {
-        tracing::warn!("could not set the notification sender to {bundle}: {e}");
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn set_notification_identity() {}
-
 pub fn run() -> iced::Result {
     let window = iced::window::Settings {
         size: iced::Size::new(1040.0, 1000.0),
         icon: window_icon(),
         ..Default::default()
     };
-    set_notification_identity();
     iced::application("Qobuz-dl", App::update, App::view)
         .theme(App::theme)
         .subscription(App::subscription)
@@ -192,6 +175,8 @@ struct SearchPayload {
     query: String,
     albums: Section<AlbumResult>,
     tracks: Section<TrackResult>,
+    /// Why one type's section is empty, when only that type's search failed.
+    failure: Option<String>,
 }
 
 /// How the active session's token came to be — shown in the Account card.
@@ -239,6 +224,9 @@ pub struct App {
     results: SearchPayload,
     /// Album cover thumbnails, keyed by cover URL, loaded lazily.
     thumbnails: HashMap<String, iced::widget::image::Handle>,
+    /// Cover URLs being fetched or whose fetch failed, so neither is requested
+    /// again. A failed cover is not retried during the session.
+    cover_requests: HashSet<String>,
 
     // Queue.
     queue: Vec<QueueItem>,
@@ -390,6 +378,7 @@ impl App {
             results_offset: scrollable::AbsoluteOffset::default(),
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
+            cover_requests: HashSet::new(),
             queue: Vec::new(),
             collapsed: HashSet::new(),
             downloading: false,
@@ -692,28 +681,23 @@ impl App {
             }
             Message::SearchDone(_, Ok(payload)) => {
                 let n = payload.albums.items.len() + payload.tracks.items.len();
-                self.status = Some(if n == 0 {
-                    Status::info("No results.")
-                } else {
-                    Status::success(format!("{n} results."))
+                self.status = Some(match &payload.failure {
+                    Some(e) => Status::error(format!("{n} results, but the {e}")),
+                    None if n == 0 => Status::info("No results."),
+                    None => Status::success(format!("{n} results.")),
                 });
-                // Keep only this search's covers cached — without the eviction
-                // the map grows for every cover ever viewed in the session.
-                let wanted: std::collections::HashSet<String> = payload
-                    .albums
-                    .items
-                    .iter()
-                    .filter_map(|a| a.cover.clone())
-                    .chain(payload.tracks.items.iter().filter_map(|t| t.cover.clone()))
-                    // The queue's group headers show covers from the same
-                    // cache, so a new search must not blank them.
-                    .chain(self.queue_covers())
-                    .collect();
-                self.thumbnails.retain(|url, _| wanted.contains(url));
                 self.results = payload;
-                self.fetch_missing_covers(wanted)
+                // Without the eviction the cache grows for every cover ever
+                // viewed in the session.
+                let in_use = self.covers_in_use();
+                self.thumbnails.retain(|url, _| in_use.contains(url));
+                self.fetch_missing_covers(in_use)
             }
             Message::SearchDone(_, Err(e)) => {
+                // The bumped generation drops any "Show more" still in flight
+                // for the results left on screen, so nothing else clears it.
+                self.results.albums.loading = false;
+                self.results.tracks.loading = false;
                 self.status = Some(Status::error(format!("Search failed: {e}")));
                 Task::none()
             }
@@ -802,6 +786,9 @@ impl App {
                 self.after_more(Kind::Tracks, covers)
             }
             Message::ThumbnailLoaded(url, Ok(bytes)) => {
+                // Released so the cover can be fetched again if an eviction
+                // later drops it from the cache.
+                self.cover_requests.remove(&url);
                 self.thumbnails
                     .insert(url, iced::widget::image::Handle::from_bytes(bytes));
                 Task::none()
@@ -943,9 +930,13 @@ impl App {
                 // work short. The token alone isn't enough: a Cancel pressed
                 // after the engine finished but before this message is handled
                 // still flips it, and reporting that batch as cancelled would
-                // be a lie — nothing was stopped.
+                // be a lie — nothing was stopped. Only the batch's own rows
+                // count: tracks added mid-batch are queued without being cut.
+                let requeued = self.queue.iter().any(|it| {
+                    self.batch.contains(&it.track_id) && matches!(it.status, ItemStatus::Queued)
+                });
                 let was_cancelled =
-                    self.cancel.take().is_some_and(|c| c.is_cancelled()) && startable(&self.queue);
+                    self.cancel.take().is_some_and(|c| c.is_cancelled()) && requeued;
                 // Persist the secret that actually signed so the next session
                 // starts from the known-good one instead of re-probing.
                 if let Some(secret) = working_secret {
@@ -954,23 +945,18 @@ impl App {
                         self.save_config();
                     }
                 }
-                let errors = self
-                    .queue
-                    .iter()
-                    .filter(|i| matches!(i.status, ItemStatus::Error(_)))
-                    .count();
+                // Counted over the batch's own tracks, like the notification,
+                // so failures left from earlier batches don't show up here.
+                let outcome = self.batch_outcome(was_cancelled);
+                let errors = outcome.failed;
                 self.status = Some(if was_cancelled {
                     // A track can finish between the click and the stop, so
                     // report what actually completed rather than what was
                     // showing when Cancel was pressed.
-                    let done = self
-                        .queue
-                        .iter()
-                        .filter(|i| matches!(i.status, ItemStatus::Done(_)))
-                        .count();
                     let mut s = format!(
-                        "Download cancelled — {done} of {} completed",
-                        self.queue.len()
+                        "Download cancelled — {} of {} completed",
+                        outcome.downloaded,
+                        self.batch.len()
                     );
                     // Failures that happened before the cancel are still worth
                     // surfacing; the Retry failed control is keyed off them.
@@ -1010,16 +996,29 @@ impl App {
         )
     }
 
-    /// Take the matching settled tracks out of the queue list; files on disk
-    /// are never touched. Ignored during a batch: a queued track may be about
-    /// to start, and the end-of-batch notification counts the batch's rows.
+    /// Whether a track can be taken out of the queue list now: it is settled
+    /// and not part of a running batch, where a queued track may be about to
+    /// start and the end-of-batch status counts the batch's rows. Tracks added
+    /// after the batch started stay removable.
+    fn can_remove(&self, it: &QueueItem) -> bool {
+        removable(&it.status) && !(self.downloading && self.batch.contains(&it.track_id))
+    }
+
+    /// Take the matching removable tracks out of the queue list; files on disk
+    /// are never touched. An album left with no rows also leaves `collapsed`,
+    /// so adding it again shows it expanded.
     fn remove_where(&mut self, matches: impl Fn(&QueueItem) -> bool) {
-        if self.downloading {
-            return;
-        }
         let before = self.queue.len();
-        self.queue
-            .retain(|it| !(matches(it) && removable(&it.status)));
+        let doomed: Vec<i64> = self
+            .queue
+            .iter()
+            .filter(|it| matches(it) && self.can_remove(it))
+            .map(|it| it.track_id)
+            .collect();
+        self.queue.retain(|it| !doomed.contains(&it.track_id));
+        let queue = &self.queue;
+        self.collapsed
+            .retain(|id| queue.iter().any(|it| &it.job.album.id == id));
         let removed = before - self.queue.len();
         if removed > 0 {
             self.status = Some(Status::info(format!(
@@ -1028,20 +1027,28 @@ impl App {
         }
     }
 
-    /// The desktop notification for the batch that just ended, if one is due.
-    fn finish_notification(&self, cancelled: bool) -> Option<(String, String)> {
+    /// How the running (or last) batch's own tracks ended.
+    fn batch_outcome(&self, cancelled: bool) -> notify::BatchOutcome {
         let in_batch = |pred: fn(&ItemStatus) -> bool| {
             self.queue
                 .iter()
                 .filter(|it| self.batch.contains(&it.track_id) && pred(&it.status))
                 .count()
         };
-        let outcome = notify::BatchOutcome {
+        notify::BatchOutcome {
             downloaded: in_batch(|s| matches!(s, ItemStatus::Done(_))),
             failed: in_batch(|s| matches!(s, ItemStatus::Error(_))),
             cancelled,
-        };
-        notify::notification(outcome, self.config.notify_on_finish, self.window_focused)
+        }
+    }
+
+    /// The desktop notification for the batch that just ended, if one is due.
+    fn finish_notification(&self, cancelled: bool) -> Option<(String, String)> {
+        notify::notification(
+            self.batch_outcome(cancelled),
+            self.config.notify_on_finish,
+            self.window_focused,
+        )
     }
 
     /// Window focus, which decides whether a finished batch notifies.
@@ -1147,11 +1154,28 @@ impl App {
         covers
     }
 
-    /// Lazily load cover thumbnails not already cached.
-    fn fetch_missing_covers(&self, urls: impl IntoIterator<Item = String>) -> Task<Message> {
+    /// Every cover a view can show right now: search results, the open album,
+    /// and the queue's group headers. Evicting anything outside this set never
+    /// blanks a visible cover, whichever view reads the cache.
+    fn covers_in_use(&self) -> HashSet<String> {
+        let results = &self.results;
+        results
+            .albums
+            .items
+            .iter()
+            .filter_map(|a| a.cover.clone())
+            .chain(results.tracks.items.iter().filter_map(|t| t.cover.clone()))
+            .chain(self.album.as_ref().and_then(|a| a.header.cover.clone()))
+            .chain(self.queue_covers())
+            .collect()
+    }
+
+    /// Lazily load cover thumbnails not already cached or requested.
+    fn fetch_missing_covers(&mut self, urls: impl IntoIterator<Item = String>) -> Task<Message> {
         let fetches: Vec<Task<Message>> = urls
             .into_iter()
             .filter(|url| !self.thumbnails.contains_key(url))
+            .filter(|url| self.cover_requests.insert(url.clone()))
             .map(|url| {
                 Task::perform(tasks::fetch_thumbnail(url.clone()), move |res| {
                     Message::ThumbnailLoaded(url.clone(), res)
@@ -1428,9 +1452,37 @@ mod tests {
                 items: vec![track("t1")],
                 total: Some(1),
             }),
+            failure: None,
         };
         app.results.albums.loading = true;
         app
+    }
+
+    #[test]
+    fn failed_search_releases_show_more_of_the_old_results() {
+        let mut app = app_with_results();
+        app.search_generation = 2;
+        let _ = app.update(Message::MoreAlbums(1, Ok(albums(&["a3"], Some(10)))));
+        let _ = app.update(Message::SearchDone(2, Err("offline".into())));
+        assert!(!app.results.albums.loading);
+        assert_eq!(album_ids(&app), ["a1", "a2"]);
+    }
+
+    #[test]
+    fn partly_failed_search_keeps_the_other_type() {
+        let mut app = app();
+        app.search_generation = 1;
+        let payload = SearchPayload {
+            query: "q".into(),
+            albums: Section::first(albums(&["a1"], Some(1))),
+            tracks: Section::default(),
+            failure: Some("track search failed: 429".into()),
+        };
+        let _ = app.update(Message::SearchDone(1, Ok(payload)));
+        assert_eq!(album_ids(&app), ["a1"]);
+        let status = app.status.unwrap();
+        assert_eq!(status.kind, status::StatusKind::Error);
+        assert!(status.text.contains("track search failed"));
     }
 
     fn album_ids(app: &App) -> Vec<&str> {
@@ -1758,21 +1810,99 @@ mod tests {
     }
 
     #[test]
-    fn remove_track_is_ignored_during_a_batch() {
+    fn remove_track_is_ignored_during_its_batch() {
         let mut app = app();
         app.queue = vec![queued(1, "a", ItemStatus::Done("FLAC".into()))];
+        app.batch = vec![1];
         app.downloading = true;
         let _ = app.update(Message::RemoveTrack(1));
         assert_eq!(queued_ids(&app), [1]);
     }
 
     #[test]
-    fn remove_group_is_ignored_while_downloading() {
+    fn remove_group_keeps_rows_of_the_running_batch() {
         let mut app = app();
-        app.queue = vec![queued(1, "a", ItemStatus::Queued)];
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Queued),
+            queued(2, "a", ItemStatus::Queued),
+        ];
+        app.batch = vec![1];
         app.downloading = true;
         let _ = app.update(Message::RemoveGroup("a".into()));
         assert_eq!(queued_ids(&app), [1]);
+    }
+
+    #[test]
+    fn track_added_during_a_batch_is_removable() {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Downloading),
+            queued(2, "b", ItemStatus::Queued),
+        ];
+        app.batch = vec![1];
+        app.downloading = true;
+        let _ = app.update(Message::RemoveTrack(2));
+        assert_eq!(queued_ids(&app), [1]);
+    }
+
+    #[test]
+    fn removed_album_forgets_it_was_collapsed() {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Done("FLAC".into())),
+            queued(2, "b", ItemStatus::Done("FLAC".into())),
+        ];
+        app.collapsed = HashSet::from(["a".to_owned(), "b".to_owned()]);
+        let _ = app.update(Message::RemoveGroup("a".into()));
+        assert_eq!(app.collapsed, HashSet::from(["b".to_owned()]));
+    }
+
+    #[test]
+    fn finished_status_counts_only_the_batch() {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Error("x".into())),
+            queued(2, "a", ItemStatus::Done("FLAC".into())),
+        ];
+        app.batch = vec![2];
+        app.downloading = true;
+        let _ = app.update(Message::DownloadsFinished(None));
+        assert_eq!(
+            app.status.map(|s| s.kind),
+            Some(status::StatusKind::Success)
+        );
+    }
+
+    #[test]
+    fn late_cancel_with_tracks_added_mid_batch_is_not_cancelled() {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Done("FLAC".into())),
+            queued(2, "b", ItemStatus::Queued),
+        ];
+        app.batch = vec![1];
+        app.downloading = true;
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        app.cancel = Some(cancel);
+        let _ = app.update(Message::DownloadsFinished(None));
+        assert_eq!(
+            app.status.map(|s| s.kind),
+            Some(status::StatusKind::Success)
+        );
+    }
+
+    #[test]
+    fn a_cover_is_requested_once_until_it_loads() {
+        let mut app = app();
+        let url = || vec!["cover".to_owned()];
+        let _ = app.fetch_missing_covers(url());
+        assert!(app.cover_requests.contains("cover"));
+        let _ = app.fetch_missing_covers(url());
+        assert_eq!(app.cover_requests.len(), 1);
+        let _ = app.update(Message::ThumbnailLoaded("cover".into(), Ok(Vec::new())));
+        assert!(app.cover_requests.is_empty());
+        assert!(app.thumbnails.contains_key("cover"));
     }
 
     #[test]

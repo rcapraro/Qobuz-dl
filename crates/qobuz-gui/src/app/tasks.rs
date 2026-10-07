@@ -42,18 +42,30 @@ pub(super) async fn login_token(
     Ok(token)
 }
 
-/// The first page of albums and of tracks, fetched concurrently.
+/// The first page of albums and of tracks, fetched concurrently. If one type
+/// fails, its section stays empty and the error goes in `failure`, so the
+/// other type's results are kept; only both failing is an error.
 pub(super) async fn do_search(client: QobuzClient, query: String) -> Result<SearchPayload, String> {
-    let (albums, tracks) = future::try_join(
+    let (albums, tracks) = future::join(
         client.search_albums(&query, PAGE_SIZE, 0),
         client.search_tracks(&query, PAGE_SIZE, 0),
     )
-    .await
-    .map_err(|e| e.to_string())?;
+    .await;
+    let failure = match (&albums, &tracks) {
+        (Err(e), Err(_)) => return Err(e.to_string()),
+        (Err(e), Ok(_)) => Some(format!("album search failed: {e}")),
+        (Ok(_), Err(e)) => Some(format!("track search failed: {e}")),
+        (Ok(_), Ok(_)) => None,
+    };
     Ok(SearchPayload {
         query,
-        albums: Section::first(album_page(albums)),
-        tracks: Section::first(track_page(tracks)),
+        albums: albums
+            .map(|l| Section::first(album_page(l)))
+            .unwrap_or_default(),
+        tracks: tracks
+            .map(|l| Section::first(track_page(l)))
+            .unwrap_or_default(),
+        failure,
     })
 }
 
@@ -147,6 +159,7 @@ pub(super) async fn open_path(target: open::Target) -> Result<(), String> {
 /// blocking thread; a failure is only logged, never surfaced in the app.
 pub(super) async fn notify(summary: String, body: String) {
     let posted = tokio::task::spawn_blocking(move || {
+        set_notification_identity();
         notify_rust::Notification::new()
             .appname("Qobuz-dl")
             .summary(&summary)
@@ -161,6 +174,27 @@ pub(super) async fn notify(summary: String, body: String) {
         Err(e) => tracing::warn!("notification task failed: {e}"),
     }
 }
+
+/// Which app macOS shows as the sender of our notifications. It can be set
+/// only once per process and must happen before the first notification. The
+/// lookup runs an AppleScript, so it waits until the first notification
+/// instead of slowing every launch. It finds the installed Qobuz-dl.app; a dev
+/// binary has none and resolves to Finder. Hard-coding our identifier instead
+/// would fail on a dev binary and use up the one attempt, leaving no way to
+/// fall back.
+#[cfg(target_os = "macos")]
+fn set_notification_identity() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let bundle = notify_rust::get_bundle_identifier_or_default("Qobuz-dl");
+        if let Err(e) = notify_rust::set_application(&bundle) {
+            tracing::warn!("could not set the notification sender to {bundle}: {e}");
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_notification_identity() {}
 
 /// Download the bytes of an album cover thumbnail via the core client.
 pub(super) async fn fetch_thumbnail(url: String) -> Result<Vec<u8>, ()> {

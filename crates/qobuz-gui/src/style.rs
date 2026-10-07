@@ -98,6 +98,12 @@ pub fn compact_button<'a, M>(label: impl text::IntoFragment<'a>) -> Button<'a, M
         .style(button::secondary)
 }
 
+/// Makes existing content, such as a cover and title, clickable as it is:
+/// no padding and no button chrome. No press handler yet.
+pub fn content_button<'a, M>(content: impl Into<Element<'a, M>>) -> Button<'a, M> {
+    button(content).padding(0).style(button::text)
+}
+
 /// A compact round "?" help toggle sized to sit at the right of a card header.
 /// Shows "×" while its help panel is open. Outlined on the card header and
 /// filled on hover.

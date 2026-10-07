@@ -519,8 +519,8 @@ state or the overall progress.
 Every queue row that is queued, done, or failed SHALL offer a control that
 removes the track from the queue list without deleting any file from disk.
 Rows that are downloading or tagging SHALL NOT offer it, and the control
-SHALL be disabled while a batch is running, as the queued rows' control is
-today.
+SHALL be disabled on rows that belong to the running batch. Rows added after
+that batch started stay removable, since the batch will never start them.
 
 #### Scenario: Remove a done track
 - **WHEN** no batch is running and the user activates Remove on a done row
@@ -532,17 +532,25 @@ today.
 
 #### Scenario: Disabled during a batch
 - **WHEN** a download batch is running
-- **THEN** the remove control on queued, done, and failed rows is disabled
+- **THEN** the remove control on that batch's queued, done, and failed rows is disabled
+
+#### Scenario: Track added during a batch
+- **WHEN** a download batch is running and the user activates Remove on a row added after it started
+- **THEN** that row leaves the queue
+
+#### Scenario: Removed album forgets its collapsed state
+- **WHEN** the user collapses a group, removes all its tracks, and later adds that album again
+- **THEN** the new group is shown expanded
 
 #### Scenario: Not offered on tracks in progress
 - **WHEN** a row is downloading or tagging
 - **THEN** it offers no remove control
 
 ### Requirement: Remove a group's settled tracks
-While no batch is running, a group header SHALL offer a control that removes
-all of that group's queued, done, and failed tracks from the queue list,
-without deleting files. It SHALL NOT be offered while a batch is running or
-when the group has no such track.
+A group header SHALL offer a control that removes all of that group's queued,
+done, and failed tracks that are not part of the running batch from the queue
+list, without deleting files. It SHALL NOT be offered when the group has no
+such track.
 
 #### Scenario: Remove a finished album
 - **WHEN** a group holds done, failed, and queued tracks and the user activates its remove control
@@ -552,9 +560,13 @@ when the group has no such track.
 - **WHEN** the user removes every track of a group
 - **THEN** the group no longer appears
 
-#### Scenario: Not offered during a batch
-- **WHEN** a download batch is running
-- **THEN** no group offers the remove control
+#### Scenario: Running batch's tracks are kept
+- **WHEN** a download batch is running and the user removes a group holding tracks of that batch and tracks added after it started
+- **THEN** only the tracks added after it started leave the queue
+
+#### Scenario: Not offered for a group entirely in the batch
+- **WHEN** a download batch is running and every settled track of a group belongs to it
+- **THEN** that group does not offer the remove control
 
 ### Requirement: Open an album's folder
 A queue group with at least one done track SHALL offer a control that opens
