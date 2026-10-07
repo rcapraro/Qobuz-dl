@@ -1,11 +1,15 @@
 //! The Queue screen: per-track rows with status badges and overall progress.
 
+use super::super::album::guest_performer;
+use super::super::tasks::thumbnail;
 use super::super::{startable, App, ItemStatus, Message, QueueItem};
-use super::{gutter_padding, quality_badge};
+use super::{bold, cover, gutter_padding, quality_badge};
 use crate::style::{self, compact_button, secondary_button, styled_button};
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text};
 use iced::{Element, Font, Length};
 use iced_aw::widget::badge::Badge;
+use qobuz_core::engine::Job;
+use qobuz_core::models::Album;
 
 pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
     // Nothing to count, nothing to start, nothing to clear: a "0/0 complete"
@@ -75,9 +79,9 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
         );
     }
 
-    let mut list = column![].spacing(style::SPACE_SM);
-    for it in &app.queue {
-        list = list.push(queue_row(it, app.downloading));
+    let mut list = column![].spacing(style::SPACE_MD);
+    for group in groups(&app.queue) {
+        list = list.push(group_view(app, group));
     }
 
     column![
@@ -88,6 +92,79 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(style::SPACE_MD)
     .into()
+}
+
+const GROUP_COVER_SIZE: f32 = 40.0;
+
+/// One album's panel: a header summarising the group, its own progress bar,
+/// and, unless collapsed, the group's track rows.
+fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
+    let album = group.album;
+    let summary = summarize(&group.items);
+    let collapsed = app.collapsed.contains(&album.id);
+    let thumb = thumbnail(album.image.as_ref()).and_then(|url| app.thumbnails.get(&url));
+
+    let mut count = row![text(format!("{} / {} done", summary.done, summary.total))
+        .size(style::TEXT_SM)
+        .style(style::muted_text)];
+    if summary.failed > 0 {
+        count = count.push(
+            text(format!(" · {} failed", summary.failed))
+                .size(style::TEXT_SM)
+                .style(|theme| text::Style {
+                    color: Some(style::accents(theme).error()),
+                }),
+        );
+    }
+
+    let mut head = row![
+        compact_button(if collapsed { "▶" } else { "▼" })
+            .on_press(Message::ToggleGroup(album.id.clone())),
+        cover(thumb, GROUP_COVER_SIZE),
+        column![
+            text(&album.title).font(bold()),
+            text(album.artist_name())
+                .size(style::TEXT_SM)
+                .style(style::muted_text),
+        ]
+        .spacing(2)
+        .width(Length::Fill),
+        count,
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center);
+
+    let has_queued = group
+        .items
+        .iter()
+        .any(|it| matches!(it.status, ItemStatus::Queued));
+    if has_queued && !app.downloading {
+        head = head.push(compact_button("Remove").on_press(Message::RemoveGroup(album.id.clone())));
+    }
+
+    let mut body = column![
+        head,
+        progress_bar(0.0..=1.0, summary.fraction.clamp(0.0, 1.0))
+            .height(Length::Fixed(style::PROGRESS_HEIGHT)),
+    ]
+    .spacing(style::SPACE_SM);
+    if !collapsed {
+        let mut rows = column![].spacing(style::SPACE_SM);
+        for it in &group.items {
+            rows = rows.push(queue_row(it, app.downloading));
+        }
+        // Indented under the header so rows read as belonging to the album.
+        body = body.push(container(rows).padding(iced::Padding {
+            left: style::SPACE_XL as f32,
+            ..iced::Padding::ZERO
+        }));
+    }
+
+    container(body)
+        .style(style::surface)
+        .padding(style::SPACE_MD)
+        .width(Length::Fill)
+        .into()
 }
 
 /// What the Queue screen shows before anything has been added to it.
@@ -159,10 +236,72 @@ fn row_fraction(it: &QueueItem) -> f32 {
 /// complete, which also covers tracks finished by the already-on-disk skip
 /// path, where no bytes are ever transferred.
 fn overall_progress(queue: &[QueueItem]) -> f32 {
-    if queue.is_empty() {
-        return 0.0;
+    progress(queue)
+}
+
+/// [`overall_progress`]'s rule over any set of items, so a group's bar follows
+/// exactly the same semantics as the whole queue's.
+fn progress<'a>(items: impl IntoIterator<Item = &'a QueueItem>) -> f32 {
+    let (sum, count) = items.into_iter().fold((0.0, 0usize), |(sum, n), it| {
+        (sum + batch_fraction(it), n + 1)
+    });
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f32
     }
-    queue.iter().map(batch_fraction).sum::<f32>() / queue.len() as f32
+}
+
+/// One album's tracks in the queue, in queue order.
+struct Group<'a> {
+    album: &'a Album,
+    items: Vec<&'a QueueItem>,
+}
+
+/// The queue split by album, groups ordered by their first track. Grouping
+/// follows the album id, so a track queued later joins its album's group
+/// rather than starting a new one.
+fn groups(queue: &[QueueItem]) -> Vec<Group<'_>> {
+    let mut groups: Vec<Group<'_>> = Vec::new();
+    for it in queue {
+        let album = &it.job.album;
+        match groups.iter_mut().find(|g| g.album.id == album.id) {
+            Some(group) => group.items.push(it),
+            None => groups.push(Group {
+                album,
+                items: vec![it],
+            }),
+        }
+    }
+    groups
+}
+
+#[derive(Debug, PartialEq)]
+struct GroupSummary {
+    done: usize,
+    failed: usize,
+    total: usize,
+    fraction: f32,
+}
+
+fn summarize(items: &[&QueueItem]) -> GroupSummary {
+    let count = |pred: fn(&ItemStatus) -> bool| items.iter().filter(|it| pred(&it.status)).count();
+    GroupSummary {
+        done: count(|s| matches!(s, ItemStatus::Done(_))),
+        failed: count(|s| matches!(s, ItemStatus::Error(_))),
+        total: items.len(),
+        fraction: progress(items.iter().copied()),
+    }
+}
+
+/// A row's title within its album group: `"3. Blue in Green"`, plus the
+/// performer when it differs from the album artist the group header shows.
+fn row_label(job: &Job) -> (String, Option<&str>) {
+    let title = match job.track.track_number {
+        Some(n) => format!("{n}. {}", job.track.title),
+        None => job.track.title.clone(),
+    };
+    (title, guest_performer(job))
 }
 
 /// Background/foreground accent selector for a queue item's status badge.
@@ -199,7 +338,12 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
         },
     );
 
-    let mut top = row![text(&it.title).width(Length::Fill), badge]
+    let (title, guest) = row_label(&it.job);
+    let mut label = column![text(title)].spacing(2);
+    if let Some(guest) = guest {
+        label = label.push(text(guest).size(style::TEXT_SM).style(style::muted_text));
+    }
+    let mut top = row![label.width(Length::Fill), badge]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
 
@@ -233,51 +377,120 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::album::tests::job;
     use super::super::super::{queue_tab_label, remaining, QueueItem};
     use super::*;
-    use qobuz_core::engine::Job;
+
+    /// Track `track_id` of album `album_id`, by the album's own artist.
+    fn track_in(track_id: i64, album_id: &str, status: ItemStatus) -> QueueItem {
+        let mut job = job(track_id, 1, Some("Band"));
+        job.album.id = album_id.into();
+        QueueItem {
+            track_id,
+            job,
+            status,
+            downloaded: 0,
+            total: None,
+        }
+    }
 
     fn item(total: Option<u64>, downloaded: u64, status: ItemStatus) -> QueueItem {
-        let album = qobuz_core::models::Album {
-            id: "a".into(),
-            title: "album".into(),
-            artist: None,
-            image: None,
-            release_date_original: None,
-            genre: None,
-            tracks_count: None,
-            media_count: None,
-            tracks: None,
-            label: None,
-            hires: false,
-            hires_streamable: false,
-        };
-        let track = qobuz_core::models::Track {
-            id: 1,
-            title: "t".into(),
-            track_number: None,
-            media_number: None,
-            performer: None,
-            composer: None,
-            isrc: None,
-            parental_warning: None,
-            duration: None,
-            album: Some(album.clone()),
-            hires: false,
-            hires_streamable: false,
-        };
         QueueItem {
-            track_id: 1,
-            job: Job {
-                track,
-                album,
-                multi_disc: false,
-            },
-            title: "t".into(),
-            status,
             downloaded,
             total,
+            ..track_in(1, "a", status)
         }
+    }
+
+    fn group_ids(queue: &[QueueItem]) -> Vec<(String, Vec<i64>)> {
+        groups(queue)
+            .iter()
+            .map(|g| {
+                let ids = g.items.iter().map(|it| it.track_id).collect();
+                (g.album.id.clone(), ids)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn one_album_is_one_group() {
+        let queue = [
+            track_in(1, "a", ItemStatus::Queued),
+            track_in(2, "a", ItemStatus::Queued),
+        ];
+        assert_eq!(group_ids(&queue), [("a".into(), vec![1, 2])]);
+    }
+
+    #[test]
+    fn later_track_joins_its_album_group() {
+        let queue = [
+            track_in(1, "a", ItemStatus::Queued),
+            track_in(2, "b", ItemStatus::Queued),
+            track_in(3, "a", ItemStatus::Queued),
+        ];
+        assert_eq!(
+            group_ids(&queue),
+            [("a".into(), vec![1, 3]), ("b".into(), vec![2])]
+        );
+    }
+
+    #[test]
+    fn playlist_spreads_across_albums() {
+        let queue = [
+            track_in(1, "x", ItemStatus::Queued),
+            track_in(2, "y", ItemStatus::Queued),
+            track_in(3, "z", ItemStatus::Queued),
+        ];
+        assert_eq!(groups(&queue).len(), 3);
+    }
+
+    #[test]
+    fn group_with_a_failure_settles_to_complete() {
+        let queue = [
+            track_in(1, "a", done()),
+            track_in(2, "a", ItemStatus::Error("x".into())),
+        ];
+        let group = &groups(&queue)[0];
+        assert_eq!(
+            summarize(&group.items),
+            GroupSummary {
+                done: 1,
+                failed: 1,
+                total: 2,
+                fraction: 1.0,
+            }
+        );
+    }
+
+    #[test]
+    fn group_progress_counts_only_its_tracks() {
+        let queue = [
+            track_in(1, "a", done()),
+            track_in(2, "b", ItemStatus::Queued),
+        ];
+        let gs = groups(&queue);
+        assert_eq!(summarize(&gs[0].items).fraction, 1.0);
+        assert_eq!(summarize(&gs[1].items).fraction, 0.0);
+    }
+
+    #[test]
+    fn label_has_number_and_no_album_artist() {
+        let it = track_in(3, "a", ItemStatus::Queued);
+        assert_eq!(row_label(&it.job), ("3. t3".into(), None));
+    }
+
+    #[test]
+    fn label_without_number_is_the_title() {
+        let mut it = track_in(3, "a", ItemStatus::Queued);
+        it.job.track.track_number = None;
+        assert_eq!(row_label(&it.job).0, "t3");
+    }
+
+    #[test]
+    fn label_shows_a_guest_performer() {
+        let mut it = track_in(3, "a", ItemStatus::Queued);
+        it.job.track.performer.as_mut().unwrap().name = Some("Guest".into());
+        assert_eq!(row_label(&it.job).1, Some("Guest"));
     }
 
     fn done() -> ItemStatus {

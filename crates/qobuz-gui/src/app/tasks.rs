@@ -81,7 +81,7 @@ pub(super) async fn more_tracks(
 }
 
 /// Prefer a small image for the thumbnail to keep downloads cheap.
-fn thumbnail(image: Option<&Image>) -> Option<String> {
+pub(super) fn thumbnail(image: Option<&Image>) -> Option<String> {
     image.and_then(|i| {
         i.small
             .clone()

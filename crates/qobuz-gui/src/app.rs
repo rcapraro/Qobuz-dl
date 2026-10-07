@@ -14,7 +14,7 @@ use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
 use qobuz_core::{auth, engine, AppCredentials, CancellationToken, QobuzClient, SigningCheck};
 use status::Status;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 mod album;
@@ -62,7 +62,6 @@ struct QueueItem {
     track_id: i64,
     /// The resolved job, retained so a failed track can be relaunched.
     job: Job,
-    title: String,
     status: ItemStatus,
     downloaded: u64,
     total: Option<u64>,
@@ -207,6 +206,8 @@ pub struct App {
 
     // Queue.
     queue: Vec<QueueItem>,
+    /// Album ids whose queue group is collapsed to its header.
+    collapsed: HashSet<String>,
     downloading: bool,
     /// Cancels the running batch. A fresh token per batch — reusing one would
     /// start the next batch already cancelled. `None` while idle.
@@ -282,6 +283,9 @@ enum Message {
     DequeueTrack(i64),
     RetryFailed,
     ClearQueue,
+    ToggleGroup(String),
+    /// Removes the still-queued tracks of one album group.
+    RemoveGroup(String),
     Download(JobEvent),
     /// Carries the app secret that actually signed during the batch, if any, so
     /// it can be promoted to the primary secret and persisted.
@@ -335,6 +339,7 @@ impl App {
             results: SearchPayload::default(),
             thumbnails: HashMap::new(),
             queue: Vec::new(),
+            collapsed: HashSet::new(),
             downloading: false,
             cancel: None,
             token,
@@ -642,6 +647,9 @@ impl App {
                     .iter()
                     .filter_map(|a| a.cover.clone())
                     .chain(payload.tracks.items.iter().filter_map(|t| t.cover.clone()))
+                    // The queue's group headers show covers from the same
+                    // cache, so a new search must not blank them.
+                    .chain(self.queue_covers())
                     .collect();
                 self.thumbnails.retain(|url, _| wanted.contains(url));
                 self.results = payload;
@@ -761,7 +769,6 @@ impl App {
                     }
                     self.queue.push(QueueItem {
                         track_id,
-                        title: format!("{} — {}", job.track.artist_name(), job.track.title),
                         job,
                         status: ItemStatus::Queued,
                         downloaded: 0,
@@ -773,7 +780,7 @@ impl App {
                     "Added {added} track(s) to the queue."
                 )));
                 self.screen = Screen::Queue;
-                Task::none()
+                self.fetch_missing_covers(self.queue_covers())
             }
             Message::Resolved(Err(e)) => {
                 self.status = Some(Status::error(format!("Could not resolve: {e}")));
@@ -836,7 +843,32 @@ impl App {
             }
             Message::ClearQueue => {
                 self.queue.clear();
+                self.collapsed.clear();
                 self.status = Some(Status::info("Queue cleared."));
+                Task::none()
+            }
+            Message::ToggleGroup(album_id) => {
+                if !self.collapsed.remove(&album_id) {
+                    self.collapsed.insert(album_id);
+                }
+                Task::none()
+            }
+            Message::RemoveGroup(album_id) => {
+                // Same rule as `DequeueTrack`: only queued tracks, and never
+                // while a batch could be about to start them.
+                if self.downloading {
+                    return Task::none();
+                }
+                let before = self.queue.len();
+                self.queue.retain(|it| {
+                    !(it.job.album.id == album_id && matches!(it.status, ItemStatus::Queued))
+                });
+                let removed = before - self.queue.len();
+                if removed > 0 {
+                    self.status = Some(Status::info(format!(
+                        "Removed {removed} track(s) from the queue."
+                    )));
+                }
                 Task::none()
             }
             Message::Download(ev) => {
@@ -970,6 +1002,21 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// The cover of every album with a group in the queue.
+    fn queue_covers(&self) -> Vec<String> {
+        let mut covers: Vec<String> = Vec::new();
+        for url in self
+            .queue
+            .iter()
+            .filter_map(|it| tasks::thumbnail(it.job.album.image.as_ref()))
+        {
+            if !covers.contains(&url) {
+                covers.push(url);
+            }
+        }
+        covers
     }
 
     /// Lazily load cover thumbnails not already cached.
@@ -1393,6 +1440,67 @@ mod tests {
         app.search_query = "kind of blue".into();
         let _ = app.update(Message::SearchSubmit);
         assert!(app.album.is_none());
+    }
+
+    fn queued(track_id: i64, album_id: &str, status: ItemStatus) -> QueueItem {
+        let mut job = album::tests::job(track_id, 1, None);
+        job.album.id = album_id.into();
+        QueueItem {
+            track_id,
+            job,
+            status,
+            downloaded: 0,
+            total: None,
+        }
+    }
+
+    #[test]
+    fn search_keeps_queued_album_covers() {
+        let mut app = app();
+        let mut item = queued(1, "a", ItemStatus::Queued);
+        item.job.album.image = Some(qobuz_core::models::Image {
+            large: None,
+            small: Some("cover-a".into()),
+            thumbnail: None,
+        });
+        app.queue = vec![item];
+        app.thumbnails.insert(
+            "cover-a".into(),
+            iced::widget::image::Handle::from_bytes(Vec::new()),
+        );
+        app.search_generation = 1;
+        let _ = app.update(Message::SearchDone(1, Ok(SearchPayload::default())));
+        assert!(app.thumbnails.contains_key("cover-a"));
+    }
+
+    #[test]
+    fn toggle_group_flips_collapsed() {
+        let mut app = app();
+        let _ = app.update(Message::ToggleGroup("a".into()));
+        assert!(app.collapsed.contains("a"));
+        let _ = app.update(Message::ToggleGroup("a".into()));
+        assert!(app.collapsed.is_empty());
+    }
+
+    #[test]
+    fn remove_group_drops_only_its_queued_tracks() {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Queued),
+            queued(2, "a", ItemStatus::Done("FLAC".into())),
+            queued(3, "b", ItemStatus::Queued),
+        ];
+        let _ = app.update(Message::RemoveGroup("a".into()));
+        assert_eq!(queued_ids(&app), [2, 3]);
+    }
+
+    #[test]
+    fn remove_group_is_ignored_while_downloading() {
+        let mut app = app();
+        app.queue = vec![queued(1, "a", ItemStatus::Queued)];
+        app.downloading = true;
+        let _ = app.update(Message::RemoveGroup("a".into()));
+        assert_eq!(queued_ids(&app), [1]);
     }
 
     #[test]

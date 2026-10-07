@@ -85,9 +85,11 @@ only need to do this once unless you sign out or the token is revoked.
    searched, with an extra action to add it by ID. **Add** on an album queues
    all of it. Click its title or cover instead to open the album, check the
    tracks you want, and add only those. **Back** returns to your results.
-3. **Queue downloads** — each track appears in the Queue with live progress,
-   and the Queue tab shows how many tracks are still to process. Failed items
-   can be retried.
+3. **Queue downloads** — tracks are grouped under their album in the Queue,
+   each group with its cover, a done count, and its own progress bar, and the
+   Queue tab shows how many tracks are still to process. Groups can be
+   collapsed, a group's queued tracks removed in one go, and failed items
+   retried.
 4. **Files land** in your configured download directory, organized by the
    folder/track **path templates** (e.g. `{artist}/{album}` /
    `{track_number} - {title}`), with tags and cover art embedded.
