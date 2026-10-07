@@ -88,6 +88,7 @@ pub(super) fn options_help() -> Element<'static, Message> {
             "• Quality: MP3 320 · FLAC 16/44.1 (CD) · FLAC 24/≤96 · FLAC 24/≤192 (Hi-Res). The service may deliver a lower tier than requested; the actual quality is read from the response.".into(),
             "• Concurrency: how many tracks download at once (1–16).".into(),
             "• Embed cover art: writes the album cover into each downloaded file's tags.".into(),
+            "• Notify when downloads finish: posts a desktop notification when a batch ends while the app is in the background (not after Cancel).".into(),
         ]),
     ]
     .spacing(style::SPACE_XS)

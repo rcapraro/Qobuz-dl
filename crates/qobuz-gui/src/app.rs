@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 mod album;
 mod help;
+mod notify;
 mod omnibox;
 mod paging;
 mod status;
@@ -30,14 +31,32 @@ fn window_icon() -> Option<iced::window::Icon> {
     iced::window::icon::from_file_data(include_bytes!("../assets/icon.png"), None).ok()
 }
 
+/// Which app macOS shows as the sender of our notifications. It can be set
+/// only once per process and must precede the first notification. The lookup
+/// finds the installed Qobuz-dl.app; a dev binary has none and resolves to
+/// Finder. Hard-coding our identifier instead would fail on a dev binary and
+/// spend the one attempt, leaving no way to fall back.
+#[cfg(target_os = "macos")]
+fn set_notification_identity() {
+    let bundle = notify_rust::get_bundle_identifier_or_default("Qobuz-dl");
+    if let Err(e) = notify_rust::set_application(&bundle) {
+        tracing::warn!("could not set the notification sender to {bundle}: {e}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_notification_identity() {}
+
 pub fn run() -> iced::Result {
     let window = iced::window::Settings {
         size: iced::Size::new(1040.0, 1000.0),
         icon: window_icon(),
         ..Default::default()
     };
+    set_notification_identity();
     iced::application("Qobuz-dl", App::update, App::view)
         .theme(App::theme)
+        .subscription(App::subscription)
         // iced_aw's NumberInput draws its spinner carets from this icon font.
         .font(iced_aw::iced_fonts::REQUIRED_FONT_BYTES)
         // Bundle Inter and make it the default so glyphs (dots, arrows, ×, ☀)
@@ -209,6 +228,11 @@ pub struct App {
     /// Album ids whose queue group is collapsed to its header.
     collapsed: HashSet<String>,
     downloading: bool,
+    /// Track ids of the running (or last) batch, so its outcome counts only
+    /// its own tracks, not ones finished by earlier batches.
+    batch: Vec<i64>,
+    /// Whether the app window has focus; notifications are skipped while it does.
+    window_focused: bool,
     /// Cancels the running batch. A fresh token per batch — reusing one would
     /// start the next batch already cancelled. `None` while idle.
     cancel: Option<CancellationToken>,
@@ -244,6 +268,7 @@ enum Message {
     ConcurrencyChanged(usize),
     QualitySelected(Quality),
     EmbedArtToggled(bool),
+    NotifyToggled(bool),
     PickDir,
     DirChosen(Option<PathBuf>),
     SaveSettings,
@@ -290,6 +315,9 @@ enum Message {
     /// Carries the app secret that actually signed during the batch, if any, so
     /// it can be promoted to the primary secret and persisted.
     DownloadsFinished(Option<String>),
+    WindowFocus(bool),
+    /// A desktop notification was posted (or failed and was logged).
+    Notified,
 }
 
 impl App {
@@ -341,6 +369,8 @@ impl App {
             queue: Vec::new(),
             collapsed: HashSet::new(),
             downloading: false,
+            batch: Vec::new(),
+            window_focused: true,
             cancel: None,
             token,
             status,
@@ -529,6 +559,10 @@ impl App {
             }
             Message::EmbedArtToggled(b) => {
                 self.config.embed_art = b;
+                Task::none()
+            }
+            Message::NotifyToggled(b) => {
+                self.config.notify_on_finish = b;
                 Task::none()
             }
             Message::PickDir => Task::perform(tasks::pick_dir(), Message::DirChosen),
@@ -922,9 +956,46 @@ impl App {
                 } else {
                     Status::error(format!("Downloads finished with {errors} error(s)."))
                 });
+                match self.finish_notification(was_cancelled) {
+                    Some((summary, body)) => {
+                        Task::perform(tasks::notify(summary, body), |()| Message::Notified)
+                    }
+                    None => Task::none(),
+                }
+            }
+            Message::WindowFocus(focused) => {
+                self.window_focused = focused;
                 Task::none()
             }
+            Message::Notified => Task::none(),
         }
+    }
+
+    /// The desktop notification for the batch that just ended, if one is due.
+    fn finish_notification(&self, cancelled: bool) -> Option<(String, String)> {
+        let in_batch = |pred: fn(&ItemStatus) -> bool| {
+            self.queue
+                .iter()
+                .filter(|it| self.batch.contains(&it.track_id) && pred(&it.status))
+                .count()
+        };
+        let outcome = notify::BatchOutcome {
+            downloaded: in_batch(|s| matches!(s, ItemStatus::Done(_))),
+            failed: in_batch(|s| matches!(s, ItemStatus::Error(_))),
+            cancelled,
+        };
+        notify::notification(outcome, self.config.notify_on_finish, self.window_focused)
+    }
+
+    /// Window focus, which decides whether a finished batch notifies.
+    fn subscription(&self) -> iced::Subscription<Message> {
+        iced::event::listen_with(|event, _status, _window| match event {
+            iced::Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocus(true)),
+            iced::Event::Window(iced::window::Event::Unfocused) => {
+                Some(Message::WindowFocus(false))
+            }
+            _ => None,
+        })
     }
 
     /// Fetch the open album's tracks. Built on `resolve`, so the jobs it
@@ -1075,6 +1146,7 @@ impl App {
         }
         let config = self.config.clone();
         self.downloading = true;
+        self.batch = jobs.iter().map(|job| job.track.id).collect();
         self.status = Some(Status::progress(format!(
             "Downloading {} track(s)…",
             jobs.len()
@@ -1471,6 +1543,51 @@ mod tests {
         app.search_generation = 1;
         let _ = app.update(Message::SearchDone(1, Ok(SearchPayload::default())));
         assert!(app.thumbnails.contains_key("cover-a"));
+    }
+
+    /// A batch of tracks 2 and 3 that just ended, beside track 1 finished by
+    /// an earlier batch, with the window in the background.
+    fn app_after_batch() -> App {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Done("FLAC".into())),
+            queued(2, "a", ItemStatus::Done("FLAC".into())),
+            queued(3, "a", ItemStatus::Error("x".into())),
+        ];
+        app.batch = vec![2, 3];
+        app.window_focused = false;
+        app
+    }
+
+    #[test]
+    fn finish_notification_counts_only_the_batch() {
+        assert_eq!(
+            app_after_batch().finish_notification(false),
+            Some((
+                "Downloads finished with errors".into(),
+                "1 downloaded, 1 failed".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn focused_window_gets_no_notification() {
+        let mut app = app_after_batch();
+        let _ = app.update(Message::WindowFocus(true));
+        assert_eq!(app.finish_notification(false), None);
+    }
+
+    #[test]
+    fn cancelled_batch_gets_no_notification() {
+        assert_eq!(app_after_batch().finish_notification(true), None);
+    }
+
+    #[test]
+    fn notify_toggle_updates_config() {
+        let mut app = app();
+        assert!(app.config.notify_on_finish);
+        let _ = app.update(Message::NotifyToggled(false));
+        assert!(!app.config.notify_on_finish);
     }
 
     #[test]

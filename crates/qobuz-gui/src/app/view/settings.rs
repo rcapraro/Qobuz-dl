@@ -90,6 +90,8 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
             Message::QualitySelected,
         ),
         checkbox("Embed cover art", app.config.embed_art).on_toggle(Message::EmbedArtToggled),
+        checkbox("Notify when downloads finish", app.config.notify_on_finish)
+            .on_toggle(Message::NotifyToggled),
         iced::widget::horizontal_space(),
         text("Concurrency:"),
         NumberInput::new(&app.config.concurrency, 1..=16, Message::ConcurrencyChanged)

@@ -127,6 +127,26 @@ fn track_page(list: TrackList) -> Page<TrackResult> {
     }
 }
 
+/// Post a desktop notification, fire-and-forget. `show()` can wait on the OS
+/// notification service (on macOS it may wait for delivery), so it runs on a
+/// blocking thread; a failure is only logged, never surfaced in the app.
+pub(super) async fn notify(summary: String, body: String) {
+    let posted = tokio::task::spawn_blocking(move || {
+        notify_rust::Notification::new()
+            .appname("Qobuz-dl")
+            .summary(&summary)
+            .body(&body)
+            .show()
+            .map(|_| ())
+    })
+    .await;
+    match posted {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("could not post notification: {e}"),
+        Err(e) => tracing::warn!("notification task failed: {e}"),
+    }
+}
+
 /// Download the bytes of an album cover thumbnail via the core client.
 pub(super) async fn fetch_thumbnail(url: String) -> Result<Vec<u8>, ()> {
     qobuz_core::fetch_bytes(&url).await.map_err(|_| ())

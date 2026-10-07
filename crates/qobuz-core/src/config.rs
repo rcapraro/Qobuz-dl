@@ -37,6 +37,8 @@ pub struct Config {
     pub app_secret_candidates: Vec<String>,
     /// Whether the GUI uses the dark theme (true) or the light theme (false).
     pub dark_mode: bool,
+    /// Whether the GUI posts a desktop notification when a download batch ends.
+    pub notify_on_finish: bool,
 }
 
 impl Default for Config {
@@ -52,6 +54,7 @@ impl Default for Config {
             app_secret: String::new(),
             app_secret_candidates: Vec::new(),
             dark_mode: true,
+            notify_on_finish: true,
         }
     }
 }
@@ -135,10 +138,18 @@ mod tests {
         let c = Config::default();
         assert!(c.embed_art);
         assert!(c.dark_mode);
+        assert!(c.notify_on_finish);
         assert_eq!(c.concurrency, 3);
         assert_eq!(c.quality, Quality::Flac24);
         assert!(c.folder_format.contains("{albumartist}"));
         assert!(!c.has_app_credentials());
+    }
+
+    #[test]
+    fn config_saved_before_notifications_loads_them_on() {
+        let c: Config = serde_json::from_str(r#"{"dark_mode": false}"#).unwrap();
+        assert!(!c.dark_mode);
+        assert!(c.notify_on_finish);
     }
 
     #[test]

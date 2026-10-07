@@ -20,7 +20,8 @@ quality, cover art, file organization, and tags.
 - Configurable **download directory** and **folder/track path templates**.
 - Full audio **tag** writing (FLAC / MP3 / M4A).
 - Find music by **search** — albums and tracks page independently with **Show more** — or by pasting a **Qobuz URL / ID** (album, track, playlist).
-- **Download queue** with per-item progress, bounded concurrency, and retry.
+- **Download queue** with per-item progress, bounded concurrency, and retry, and a
+  **desktop notification** when a batch finishes while the app is in the background.
 
 ## Screenshots
 
@@ -158,3 +159,11 @@ with a **stable self-signed identity**:
 3. The first run still prompts once — click **Always Allow**. Because the signing
    identity and identifier (`com.qobuzdl.qobuz-dl`) are now stable, that choice
    persists across future rebuilds.
+
+### macOS: notifications in development
+
+The installed `Qobuz-dl.app` posts its "Downloads finished" notifications under
+its own name and icon. A development binary is not an installed app bundle, so
+macOS attributes its notifications to **Finder** instead. That is expected; to
+see them at all, allow notifications for Finder in *System Settings →
+Notifications*.
