@@ -77,6 +77,7 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
         row![
             text(app.config.download_dir.display().to_string()).width(Length::Fill),
             secondary_button("Choose…", Message::PickDir),
+            secondary_button("Open", Message::OpenDownloadDir),
         ]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center),

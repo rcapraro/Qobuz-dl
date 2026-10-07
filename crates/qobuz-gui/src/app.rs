@@ -21,6 +21,7 @@ mod album;
 mod help;
 mod notify;
 mod omnibox;
+mod open;
 mod paging;
 mod status;
 mod tasks;
@@ -84,6 +85,8 @@ struct QueueItem {
     status: ItemStatus,
     downloaded: u64,
     total: Option<u64>,
+    /// The downloaded file once done: what "Open folder" and "Show in folder" act on.
+    path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +107,16 @@ fn startable(queue: &[QueueItem]) -> bool {
     queue
         .iter()
         .any(|it| matches!(it.status, ItemStatus::Queued))
+}
+
+/// Whether a track can be taken out of the queue list: anything settled. A
+/// downloading or tagging track is still in the engine's hands. Removing
+/// never touches files on disk.
+fn removable(status: &ItemStatus) -> bool {
+    matches!(
+        status,
+        ItemStatus::Queued | ItemStatus::Done(_) | ItemStatus::Error(_)
+    )
 }
 
 /// Tracks still to process: queued, downloading, or tagging. Done and failed
@@ -138,6 +151,10 @@ fn more_loaded<T>(
         .collect();
     section.append(page, id);
     Ok(covers)
+}
+
+fn open_target(target: open::Target) -> Task<Message> {
+    Task::perform(tasks::open_path(target), Message::Opened)
 }
 
 fn queue_tab_label(queue: &[QueueItem]) -> String {
@@ -305,12 +322,19 @@ enum Message {
     StartDownloads,
     CancelDownloads,
     RetryTrack(i64),
-    DequeueTrack(i64),
+    /// Takes a settled track out of the queue list (never deletes its file).
+    RemoveTrack(i64),
     RetryFailed,
     ClearQueue,
     ToggleGroup(String),
-    /// Removes the still-queued tracks of one album group.
+    /// Takes all settled tracks of one album group out of the queue list.
     RemoveGroup(String),
+    /// Opens the folder holding an album group's downloaded files.
+    OpenAlbumFolder(String),
+    /// Shows a done track's file in its folder.
+    RevealTrack(i64),
+    OpenDownloadDir,
+    Opened(Result<(), String>),
     Download(JobEvent),
     /// Carries the app secret that actually signed during the batch, if any, so
     /// it can be promoted to the primary secret and persisted.
@@ -807,6 +831,7 @@ impl App {
                         status: ItemStatus::Queued,
                         downloaded: 0,
                         total: None,
+                        path: None,
                     });
                     added += 1;
                 }
@@ -858,14 +883,8 @@ impl App {
                     None => Task::none(),
                 }
             }
-            Message::DequeueTrack(track_id) => {
-                let before = self.queue.len();
-                self.queue.retain(|it| {
-                    !(it.track_id == track_id && matches!(it.status, ItemStatus::Queued))
-                });
-                if self.queue.len() != before {
-                    self.status = Some(Status::info("Removed from queue."));
-                }
+            Message::RemoveTrack(track_id) => {
+                self.remove_where(|it| it.track_id == track_id);
                 Task::none()
             }
             Message::RetryFailed => {
@@ -888,21 +907,30 @@ impl App {
                 Task::none()
             }
             Message::RemoveGroup(album_id) => {
-                // Same rule as `DequeueTrack`: only queued tracks, and never
-                // while a batch could be about to start them.
-                if self.downloading {
-                    return Task::none();
+                self.remove_where(|it| it.job.album.id == album_id);
+                Task::none()
+            }
+            Message::OpenAlbumFolder(album_id) => match self.album_folder(&album_id) {
+                Some(folder) => open_target(open::Target::Folder(folder)),
+                None => Task::none(),
+            },
+            Message::RevealTrack(track_id) => {
+                match self
+                    .queue
+                    .iter()
+                    .find(|it| it.track_id == track_id)
+                    .and_then(|it| it.path.clone())
+                {
+                    Some(file) => open_target(open::Target::File(file)),
+                    None => Task::none(),
                 }
-                let before = self.queue.len();
-                self.queue.retain(|it| {
-                    !(it.job.album.id == album_id && matches!(it.status, ItemStatus::Queued))
-                });
-                let removed = before - self.queue.len();
-                if removed > 0 {
-                    self.status = Some(Status::info(format!(
-                        "Removed {removed} track(s) from the queue."
-                    )));
-                }
+            }
+            Message::OpenDownloadDir => {
+                open_target(open::Target::Folder(self.config.download_dir.clone()))
+            }
+            Message::Opened(Ok(())) => Task::none(),
+            Message::Opened(Err(e)) => {
+                self.status = Some(Status::error(e));
                 Task::none()
             }
             Message::Download(ev) => {
@@ -968,6 +996,35 @@ impl App {
                 Task::none()
             }
             Message::Notified => Task::none(),
+        }
+    }
+
+    /// The folder an album group's downloaded files share, once any is done.
+    fn album_folder(&self, album_id: &str) -> Option<PathBuf> {
+        open::shared_folder(
+            self.queue
+                .iter()
+                .filter(|it| it.job.album.id == album_id)
+                .filter(|it| matches!(it.status, ItemStatus::Done(_)))
+                .filter_map(|it| it.path.as_deref()),
+        )
+    }
+
+    /// Take the matching settled tracks out of the queue list; files on disk
+    /// are never touched. Ignored during a batch: a queued track may be about
+    /// to start, and the end-of-batch notification counts the batch's rows.
+    fn remove_where(&mut self, matches: impl Fn(&QueueItem) -> bool) {
+        if self.downloading {
+            return;
+        }
+        let before = self.queue.len();
+        self.queue
+            .retain(|it| !(matches(it) && removable(&it.status)));
+        let removed = before - self.queue.len();
+        if removed > 0 {
+            self.status = Some(Status::info(format!(
+                "Removed {removed} track(s) from the queue."
+            )));
         }
     }
 
@@ -1142,6 +1199,7 @@ impl App {
                 it.status = ItemStatus::Queued;
                 it.downloaded = 0;
                 it.total = None;
+                it.path = None;
             }
         }
         let config = self.config.clone();
@@ -1197,7 +1255,12 @@ impl App {
                 item.total = total;
             }
             JobEvent::Tagging { .. } => item.status = ItemStatus::Tagging,
-            JobEvent::Done { delivered, .. } => item.status = ItemStatus::Done(delivered),
+            JobEvent::Done {
+                delivered, path, ..
+            } => {
+                item.status = ItemStatus::Done(delivered);
+                item.path = Some(path);
+            }
             JobEvent::Failed { error, .. } => item.status = ItemStatus::Error(error),
             // Back to queued with its progress discarded, so the partial file
             // (already deleted by the engine) is re-fetched from scratch and
@@ -1206,6 +1269,7 @@ impl App {
                 item.status = ItemStatus::Queued;
                 item.downloaded = 0;
                 item.total = None;
+                item.path = None;
             }
         }
     }
@@ -1523,6 +1587,7 @@ mod tests {
             status,
             downloaded: 0,
             total: None,
+            path: None,
         }
     }
 
@@ -1590,6 +1655,64 @@ mod tests {
         assert!(!app.config.notify_on_finish);
     }
 
+    fn done_at(track_id: i64, album_id: &str, file: &str) -> QueueItem {
+        QueueItem {
+            path: Some(PathBuf::from(file)),
+            ..queued(track_id, album_id, ItemStatus::Done("FLAC".into()))
+        }
+    }
+
+    #[test]
+    fn album_folder_comes_from_done_tracks_only() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/music/Album/01.flac"),
+            queued(2, "a", ItemStatus::Queued),
+            done_at(3, "b", "/music/Other/01.flac"),
+        ];
+        assert_eq!(app.album_folder("a"), Some(PathBuf::from("/music/Album")));
+    }
+
+    #[test]
+    fn album_without_a_done_track_has_no_folder() {
+        let mut app = app();
+        app.queue = vec![queued(1, "a", ItemStatus::Queued)];
+        assert_eq!(app.album_folder("a"), None);
+    }
+
+    #[test]
+    fn failed_open_is_reported() {
+        let mut app = app();
+        let _ = app.update(Message::Opened(Err("Could not open: gone".into())));
+        let status = app.status.unwrap();
+        assert_eq!(status.kind, status::StatusKind::Error);
+        assert!(status.text.contains("gone"));
+    }
+
+    #[test]
+    fn only_settled_tracks_are_removable() {
+        assert!(removable(&ItemStatus::Queued));
+        assert!(removable(&ItemStatus::Done("FLAC".into())));
+        assert!(removable(&ItemStatus::Error("x".into())));
+        assert!(!removable(&ItemStatus::Downloading));
+        assert!(!removable(&ItemStatus::Tagging));
+    }
+
+    #[test]
+    fn done_event_keeps_the_file_path_and_cancel_clears_it() {
+        let mut app = app();
+        app.queue = vec![queued(1, "a", ItemStatus::Downloading)];
+        let file = PathBuf::from("/music/a/01.flac");
+        let _ = app.update(Message::Download(JobEvent::Done {
+            track_id: 1,
+            path: file.clone(),
+            delivered: "FLAC".into(),
+        }));
+        assert_eq!(app.queue[0].path, Some(file));
+        let _ = app.update(Message::Download(JobEvent::Cancelled { track_id: 1 }));
+        assert_eq!(app.queue[0].path, None);
+    }
+
     #[test]
     fn toggle_group_flips_collapsed() {
         let mut app = app();
@@ -1600,15 +1723,47 @@ mod tests {
     }
 
     #[test]
-    fn remove_group_drops_only_its_queued_tracks() {
+    fn remove_group_drops_all_its_settled_tracks() {
         let mut app = app();
         app.queue = vec![
             queued(1, "a", ItemStatus::Queued),
             queued(2, "a", ItemStatus::Done("FLAC".into())),
-            queued(3, "b", ItemStatus::Queued),
+            queued(3, "a", ItemStatus::Error("x".into())),
+            queued(4, "a", ItemStatus::Tagging),
+            queued(5, "b", ItemStatus::Done("FLAC".into())),
         ];
         let _ = app.update(Message::RemoveGroup("a".into()));
-        assert_eq!(queued_ids(&app), [2, 3]);
+        assert_eq!(queued_ids(&app), [4, 5]);
+    }
+
+    #[test]
+    fn remove_track_takes_done_and_failed_rows() {
+        let mut app = app();
+        app.queue = vec![
+            queued(1, "a", ItemStatus::Done("FLAC".into())),
+            queued(2, "a", ItemStatus::Error("x".into())),
+            queued(3, "a", ItemStatus::Queued),
+        ];
+        let _ = app.update(Message::RemoveTrack(1));
+        let _ = app.update(Message::RemoveTrack(2));
+        assert_eq!(queued_ids(&app), [3]);
+    }
+
+    #[test]
+    fn remove_track_leaves_a_downloading_row() {
+        let mut app = app();
+        app.queue = vec![queued(1, "a", ItemStatus::Downloading)];
+        let _ = app.update(Message::RemoveTrack(1));
+        assert_eq!(queued_ids(&app), [1]);
+    }
+
+    #[test]
+    fn remove_track_is_ignored_during_a_batch() {
+        let mut app = app();
+        app.queue = vec![queued(1, "a", ItemStatus::Done("FLAC".into()))];
+        app.downloading = true;
+        let _ = app.update(Message::RemoveTrack(1));
+        assert_eq!(queued_ids(&app), [1]);
     }
 
     #[test]

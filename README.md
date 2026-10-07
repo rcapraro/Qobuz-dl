@@ -89,8 +89,11 @@ only need to do this once unless you sign out or the token is revoked.
 3. **Queue downloads** — tracks are grouped under their album in the Queue,
    each group with its cover, a done count, and its own progress bar, and the
    Queue tab shows how many tracks are still to process. Groups can be
-   collapsed, a group's queued tracks removed in one go, and failed items
-   retried.
+   collapsed and failed items retried. When no batch is running, **Remove**
+   takes a track or a whole album group out of the list; files on disk are
+   never deleted. **Open folder** on an album, or **Show in folder** on a
+   track, opens the downloaded files in your file manager. Settings has an
+   **Open** button next to the download directory.
 4. **Files land** in your configured download directory, organized by the
    folder/track **path templates** (e.g. `{artist}/{album}` /
    `{track_number} - {title}`), with tags and cover art embedded.

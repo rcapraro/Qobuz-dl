@@ -1,6 +1,7 @@
 //! Async wrappers around `qobuz-core` calls, run via `Task::perform`. Each is a
 //! thin `map_err(|e| e.to_string())` boundary — no logic lives here.
 
+use super::open;
 use super::paging::{Page, Section, PAGE_SIZE};
 use super::{AlbumResult, SearchPayload, TrackResult};
 use iced::futures::future;
@@ -125,6 +126,20 @@ fn track_page(list: TrackList) -> Page<TrackResult> {
         items,
         total: list.total,
     }
+}
+
+/// Show a file or folder in the system file manager. Waits for the opener so
+/// it is reaped, but ignores its exit code: `explorer` exits 1 even when it
+/// opened the window. Only a missing path or a command that cannot start is
+/// an error.
+pub(super) async fn open_path(target: open::Target) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        open::command(&target)?.status()?;
+        Ok::<_, std::io::Error>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("Could not open: {e}"))
 }
 
 /// Post a desktop notification, fire-and-forget. `show()` can wait on the OS

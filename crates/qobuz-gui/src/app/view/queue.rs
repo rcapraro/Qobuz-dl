@@ -2,7 +2,7 @@
 
 use super::super::album::guest_performer;
 use super::super::tasks::thumbnail;
-use super::super::{startable, App, ItemStatus, Message, QueueItem};
+use super::super::{removable, startable, App, ItemStatus, Message, QueueItem};
 use super::{bold, cover, gutter_padding, quality_badge};
 use crate::style::{self, compact_button, secondary_button, styled_button};
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text};
@@ -134,11 +134,13 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center);
 
-    let has_queued = group
-        .items
-        .iter()
-        .any(|it| matches!(it.status, ItemStatus::Queued));
-    if has_queued && !app.downloading {
+    if app.album_folder(&album.id).is_some() {
+        head = head.push(
+            compact_button("Open folder").on_press(Message::OpenAlbumFolder(album.id.clone())),
+        );
+    }
+    let has_removable = group.items.iter().any(|it| removable(&it.status));
+    if has_removable && !app.downloading {
         head = head.push(compact_button("Remove").on_press(Message::RemoveGroup(album.id.clone())));
     }
 
@@ -358,11 +360,17 @@ fn queue_row(it: &QueueItem, downloading: bool) -> Element<'_, Message> {
         top = top.push(retry);
     }
 
-    // A still-queued track can be removed from the queue (disabled while a
-    // batch is running).
-    if matches!(it.status, ItemStatus::Queued) {
+    // Opening is harmless mid-batch, so unlike Remove it is never disabled.
+    if matches!(it.status, ItemStatus::Done(_)) && it.path.is_some() {
+        top =
+            top.push(compact_button("Show in folder").on_press(Message::RevealTrack(it.track_id)));
+    }
+
+    // Any settled track can be taken out of the list, files untouched
+    // (disabled while a batch is running).
+    if removable(&it.status) {
         let remove = compact_button("Remove")
-            .on_press_maybe((!downloading).then_some(Message::DequeueTrack(it.track_id)));
+            .on_press_maybe((!downloading).then_some(Message::RemoveTrack(it.track_id)));
         top = top.push(remove);
     }
 
@@ -391,6 +399,7 @@ mod tests {
             status,
             downloaded: 0,
             total: None,
+            path: None,
         }
     }
 
