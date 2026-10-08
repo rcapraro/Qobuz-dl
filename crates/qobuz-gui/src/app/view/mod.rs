@@ -4,6 +4,7 @@ pub(super) mod album;
 pub(super) mod queue;
 pub(super) mod search;
 pub(super) mod settings;
+pub(super) mod tag_editor;
 
 use super::status::{Status, StatusKind};
 use super::Message;

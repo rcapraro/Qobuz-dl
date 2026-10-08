@@ -46,6 +46,13 @@ impl std::fmt::Display for CoverSize {
     }
 }
 
+/// Whether `bytes` are a complete JPEG or PNG image this module can read. It
+/// decodes the whole image, since a truncated file still has a valid header.
+/// Blocking and CPU-bound.
+pub fn is_cover_image(bytes: &[u8]) -> bool {
+    reader(bytes).is_ok_and(|r| r.decode().is_ok())
+}
+
 /// Fit cover `bytes` within `size`, returning them unchanged when they already
 /// fit or cannot be processed, so a cover problem never fails a track.
 /// Blocking and CPU-bound.
@@ -228,6 +235,18 @@ mod tests {
     fn unreadable_cover_is_unchanged() {
         let garbage = b"<html>not an image</html>".to_vec();
         assert_eq!(prepare_cover(garbage.clone(), CoverSize::Px600), garbage);
+    }
+
+    #[test]
+    fn recognizes_cover_images() {
+        assert!(is_cover_image(&plain(10, 10)));
+        assert!(!is_cover_image(b"<html>not an image</html>"));
+    }
+
+    #[test]
+    fn truncated_image_is_not_a_cover() {
+        let image = plain(200, 200);
+        assert!(!is_cover_image(&image[..image.len() / 2]));
     }
 
     #[test]

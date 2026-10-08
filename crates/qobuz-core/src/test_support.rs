@@ -44,3 +44,16 @@ pub fn write_minimal_mp3(path: &Path) {
     frame.resize(FRAME_LEN, 0);
     std::fs::write(path, frame.repeat(2)).unwrap();
 }
+
+/// Write the smallest stream lofty accepts as MP4 audio: an `ftyp` atom for
+/// M4A and an empty `moov`.
+pub fn write_minimal_m4a(path: &Path) {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&20u32.to_be_bytes());
+    bytes.extend_from_slice(b"ftypM4A ");
+    bytes.extend_from_slice(&0u32.to_be_bytes());
+    bytes.extend_from_slice(b"M4A ");
+    bytes.extend_from_slice(&8u32.to_be_bytes());
+    bytes.extend_from_slice(b"moov");
+    std::fs::write(path, bytes).unwrap();
+}

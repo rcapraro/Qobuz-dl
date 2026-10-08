@@ -16,6 +16,7 @@ pub mod error;
 pub mod models;
 pub mod quality;
 pub mod signature;
+pub mod tag_edit;
 pub mod tagging;
 pub mod template;
 

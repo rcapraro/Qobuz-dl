@@ -1,12 +1,13 @@
 //! Writing audio tags and embedding cover art via `lofty`.
 
 use crate::error::Result;
-use crate::models::{Album, Track};
+use crate::models::{Album, ArtistRef, Track};
+use crate::tag_edit::{self, format_date, Field, TagFields, FLAG_ON};
 use lofty::config::WriteOptions;
 use lofty::ogg::{OggPictureStorage, VorbisComments};
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::tag::items::Timestamp;
-use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
+use lofty::tag::{Tag, TagExt, TagType};
 use std::path::Path;
 
 /// Metadata to write to a downloaded file.
@@ -39,53 +40,20 @@ fn tag_type_for(path: &Path) -> TagType {
 pub fn write_tags(path: &Path, dest: &Path, tags: &TrackTags<'_>) -> Result<()> {
     let tag_type = tag_type_for(dest);
     let mut tag = Tag::new(tag_type);
-
-    tag.set_title(tags.track.title.clone());
-    tag.set_artist(tags.track.artist_name().to_string());
-    tag.set_album(tags.album.title.clone());
-
-    if let Some(tn) = tags.track.track_number {
-        tag.set_track(tn);
-    }
-    if let Some(total) = tags.disc_track_total {
-        tag.set_track_total(total);
-    }
-    let disc = tags.track.disc_number();
-    tag.set_disk(disc);
-    if let Some(discs) = tags.album.media_count {
-        tag.set_disk_total(discs);
-    }
-
-    if let Some(date) = release_date(tags.album) {
-        tag.set_date(date);
-    }
-    if let Some(g) = tags.album.genre.as_ref().and_then(|g| g.name.clone()) {
-        tag.set_genre(g);
-    }
-
-    tag.insert_text(ItemKey::AlbumArtist, tags.album.artist_name().to_string());
-    if let Some(c) = tags.track.composer.as_ref().and_then(|c| c.name.clone()) {
-        tag.insert_text(ItemKey::Composer, c);
-    }
-    if let Some(isrc) = tags.track.isrc.clone() {
-        tag.insert_text(ItemKey::Isrc, isrc);
-    }
-    if let Some(label) = tags.album.label.as_ref().and_then(|l| l.name.clone()) {
-        tag.insert_text(ItemKey::Label, label);
-    }
-    if let Some(copyright) = tags.album.copyright.clone() {
-        tag.insert_text(ItemKey::CopyrightMessage, copyright);
+    let fields = fields_from(tags.track, tags.album, tags.disc_track_total);
+    for (&field, value) in &fields.values {
+        if !tag_edit::is_native(tag_type, field) {
+            tag_edit::set_field(&mut tag, field, Some(value))?;
+        }
     }
 
     let picture = tags.cover.and_then(build_picture);
-    // A clean track gets no flag: Qobuz doesn't tell "clean" from "not explicit".
-    let explicit = tags.track.is_explicit();
     if tag_type == TagType::VorbisComments {
         // lofty maps no generic key to Vorbis' advisory field, so it is set on
         // the native tag.
         let mut comments = VorbisComments::from(tag);
-        if explicit {
-            comments.insert(VORBIS_ADVISORY.to_string(), EXPLICIT.to_string());
+        if fields.get(Field::Explicit).is_some() {
+            comments.insert(VORBIS_ADVISORY.to_string(), FLAG_ON.to_string());
         }
         if let Some(picture) = picture {
             // Converting a generic tag drops pictures whose header lofty can't
@@ -95,9 +63,6 @@ pub fn write_tags(path: &Path, dest: &Path, tags: &TrackTags<'_>) -> Result<()> 
         }
         comments.save_to_path(path, WriteOptions::default())?;
     } else {
-        if explicit {
-            tag.insert_text(ItemKey::ParentalAdvisory, EXPLICIT.to_string());
-        }
         if let Some(picture) = picture {
             tag.push_picture(picture);
         }
@@ -107,9 +72,49 @@ pub fn write_tags(path: &Path, dest: &Path, tags: &TrackTags<'_>) -> Result<()> 
 }
 
 /// The iTunes advisory field taggers and players read in Vorbis comments.
-const VORBIS_ADVISORY: &str = "ITUNESADVISORY";
-/// iTunes advisory value for explicit content, in every container.
-const EXPLICIT: &str = "1";
+pub(crate) const VORBIS_ADVISORY: &str = "ITUNESADVISORY";
+
+/// The editable tags a download writes for `track`, which is also what the
+/// tag editor's Reset to Qobuz restores.
+pub fn fields_from(track: &Track, album: &Album, disc_track_total: Option<u32>) -> TagFields {
+    let text = |s: Option<&str>| s.filter(|s| !s.is_empty()).map(str::to_string);
+    let number = |n: Option<u32>| n.filter(|n| *n > 0).map(|n| n.to_string());
+    let name = |a: Option<&ArtistRef>| text(a.and_then(|a| a.name.as_deref()));
+    let values = [
+        (Field::Title, text(Some(&track.title))),
+        (Field::Artist, text(Some(track.artist_name()))),
+        (Field::Album, text(Some(&album.title))),
+        (Field::AlbumArtist, text(Some(album.artist_name()))),
+        (Field::TrackNumber, number(track.track_number)),
+        (Field::TrackTotal, number(disc_track_total)),
+        (Field::DiscNumber, number(Some(track.disc_number()))),
+        (Field::DiscTotal, number(album.media_count)),
+        (Field::Date, release_date(album).map(format_date)),
+        (
+            Field::Genre,
+            text(album.genre.as_ref().and_then(|g| g.name.as_deref())),
+        ),
+        (Field::Composer, name(track.composer.as_ref())),
+        (Field::Isrc, text(track.isrc.as_deref())),
+        (
+            Field::Label,
+            text(album.label.as_ref().and_then(|l| l.name.as_deref())),
+        ),
+        (Field::Copyright, text(album.copyright.as_deref())),
+        // A clean track gets no flag: Qobuz doesn't tell "clean" from "not explicit".
+        (
+            Field::Explicit,
+            track.is_explicit().then(|| FLAG_ON.to_string()),
+        ),
+    ];
+    TagFields {
+        values: values
+            .into_iter()
+            .filter_map(|(field, value)| Some((field, value?)))
+            .collect(),
+        cover: None,
+    }
+}
 
 /// The album's `YYYY-MM-DD` release date. The year is read as before, from the
 /// first four characters, so an unexpected date shape still yields it; month
@@ -134,7 +139,7 @@ fn release_date(album: &Album) -> Option<Timestamp> {
     })
 }
 
-fn build_picture(bytes: &[u8]) -> Option<Picture> {
+pub(crate) fn build_picture(bytes: &[u8]) -> Option<Picture> {
     let mime = sniff_mime(bytes);
     Some(
         Picture::unchecked(bytes.to_vec())
@@ -155,6 +160,7 @@ fn sniff_mime(bytes: &[u8]) -> MimeType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lofty::tag::{Accessor, ItemKey};
     use std::path::Path;
 
     #[test]
@@ -275,7 +281,7 @@ mod tests {
         )
         .unwrap();
         let comments = flac.vorbis_comments().unwrap();
-        assert_eq!(comments.get(VORBIS_ADVISORY), Some(EXPLICIT));
+        assert_eq!(comments.get(VORBIS_ADVISORY), Some(FLAG_ON));
     }
 
     #[test]
@@ -297,7 +303,7 @@ mod tests {
         )
         .unwrap();
         let id3 = mp3.id3v2().unwrap();
-        assert_eq!(id3.get_user_text(VORBIS_ADVISORY), Some(EXPLICIT));
+        assert_eq!(id3.get_user_text(VORBIS_ADVISORY), Some(FLAG_ON));
     }
 
     #[test]
@@ -328,7 +334,7 @@ mod tests {
         use lofty::mp4::{AdvisoryRating, Ilst};
 
         let mut tag = Tag::new(TagType::Mp4Ilst);
-        tag.insert_text(ItemKey::ParentalAdvisory, EXPLICIT.to_string());
+        tag.insert_text(ItemKey::ParentalAdvisory, FLAG_ON.to_string());
         let ilst = Ilst::from(tag);
         assert_eq!(ilst.advisory_rating(), Some(AdvisoryRating::Explicit));
     }

@@ -97,9 +97,25 @@ impl PartFile {
         self.0.as_deref().expect("armed until disarmed")
     }
 
+    /// A copy of `original` beside it, to edit and then publish over it. A copy
+    /// that fails part-way is removed.
+    pub fn copy_of(original: &Path) -> Result<Self> {
+        let part = Self::new(part_path(original));
+        std::fs::copy(original, part.path())?;
+        Ok(part)
+    }
+
     /// Rename the finished file to `dest`. On failure the temp file is removed.
     pub async fn publish(self, dest: &Path) -> Result<()> {
         tokio::fs::rename(self.path(), dest).await?;
+        self.disarm();
+        Ok(())
+    }
+
+    /// [`PartFile::publish`] for blocking callers. `rename` replaces an
+    /// existing `dest` atomically, on Windows too.
+    pub fn publish_sync(self, dest: &Path) -> Result<()> {
+        std::fs::rename(self.path(), dest)?;
         self.disarm();
         Ok(())
     }

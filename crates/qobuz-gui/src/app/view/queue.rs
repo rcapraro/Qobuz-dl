@@ -2,8 +2,8 @@
 
 use super::super::album::guest_performer;
 use super::super::tasks::thumbnail;
-use super::super::{startable, App, ItemStatus, Message, QueueItem};
-use super::{bold, cover, gutter_padding, quality_badge};
+use super::super::{startable, App, EditorSlot, ItemStatus, Message, QueueItem};
+use super::{bold, cover, gutter_padding, quality_badge, tag_editor};
 use crate::style::{self, compact_button, secondary_button, styled_button};
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
 use iced::{Element, Font, Length};
@@ -12,12 +12,42 @@ use qobuz_core::engine::Job;
 use qobuz_core::models::Album;
 
 pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
+    // The editor takes the list's place, but downloads of other albums go on,
+    // so their progress and Cancel/Start stay above it.
+    let editor = match &app.tag_editor {
+        Some(EditorSlot::Loading(_)) => Some(tag_editor::loading_view()),
+        Some(EditorSlot::Open(editor)) => Some(tag_editor::tag_editor_view(app, editor)),
+        None => None,
+    };
+    if let Some(editor) = editor {
+        return column![queue_header(app, true), editor]
+            .spacing(style::SPACE_MD)
+            .into();
+    }
+
     // Nothing to count, nothing to start, nothing to clear: a "0/0 complete"
     // label over an empty bar reads as broken rather than as empty.
     if app.queue.is_empty() {
         return empty_state();
     }
 
+    let mut list = column![].spacing(style::SPACE_MD);
+    for group in groups(&app.queue) {
+        list = list.push(group_view(app, group));
+    }
+
+    column![
+        queue_header(app, false),
+        scrollable(list.padding(gutter_padding())).height(Length::Fill),
+    ]
+    .spacing(style::SPACE_MD)
+    .into()
+}
+
+/// The queue's count, its actions and the overall progress bar. While an
+/// album's tags are edited, Retry failed and Clear queue are left out: they
+/// would change the queue under the editor.
+fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
     let done = app
         .queue
         .iter()
@@ -36,15 +66,15 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
             .spacing(style::SPACE_SM)
             .align_y(iced::Alignment::Center);
 
-    if failed > 0 && !app.downloading {
+    if failed > 0 && !app.downloading && !editing {
         header = header.push(
             secondary_button(format!("Retry failed ({failed})"), Message::RetryFailed)
                 .width(Length::Shrink),
         );
     }
 
-    // The queue is known non-empty here — the empty case returned above.
-    if !app.downloading {
+    // The queue is known non-empty here: the empty case returned before.
+    if !app.downloading && !editing {
         header = header.push(secondary_button("Clear queue", Message::ClearQueue));
     }
 
@@ -79,16 +109,10 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
         );
     }
 
-    let mut list = column![].spacing(style::SPACE_MD);
-    for group in groups(&app.queue) {
-        list = list.push(group_view(app, group));
-    }
-
     column![
         header,
         progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
             .height(Length::Fixed(style::PROGRESS_HEIGHT)),
-        scrollable(list.padding(gutter_padding())).height(Length::Fill),
     ]
     .spacing(style::SPACE_MD)
     .into()
@@ -142,6 +166,9 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         head = head.push(
             compact_button("Open folder").on_press(Message::OpenAlbumFolder(album.id.clone())),
         );
+    }
+    if app.group_editable(group.items.iter().copied()) {
+        head = head.push(compact_button("Edit tags").on_press(Message::EditTags(album.id.clone())));
     }
     if group.items.iter().any(|it| app.can_remove(it)) {
         head = head.push(compact_button("Remove").on_press(Message::RemoveGroup(album.id.clone())));

@@ -13,10 +13,12 @@ use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
+use qobuz_core::tag_edit::{CoverPlan, Saved};
 use qobuz_core::{auth, engine, AppCredentials, CancellationToken, QobuzClient, SigningCheck};
 use status::Status;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use tag_editor::TagEditor;
 
 mod album;
 mod cover_art;
@@ -27,6 +29,7 @@ mod open;
 mod paging;
 mod shortcut;
 mod status;
+mod tag_editor;
 mod tasks;
 mod view;
 
@@ -207,6 +210,23 @@ struct SearchPayload {
     failure: Option<String>,
 }
 
+/// The Queue tab's tag editor: reading an album's files, then editing them.
+#[derive(Debug, Clone)]
+enum EditorSlot {
+    /// The album id whose files are being read.
+    Loading(String),
+    Open(Box<TagEditor>),
+}
+
+impl EditorSlot {
+    fn album_id(&self) -> &str {
+        match self {
+            EditorSlot::Loading(id) => id,
+            EditorSlot::Open(editor) => &editor.album_id,
+        }
+    }
+}
+
 /// How the active session's token came to be — shown in the Account card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TokenOrigin {
@@ -264,6 +284,8 @@ pub struct App {
     queue: Vec<QueueItem>,
     /// Album ids whose queue group is collapsed to its header.
     collapsed: HashSet<String>,
+    /// An album's tag editor, shown on the Queue tab in place of the list.
+    tag_editor: Option<EditorSlot>,
     downloading: bool,
     /// Track ids of the running (or last) batch, so its outcome counts only
     /// its own tracks, not ones finished by earlier batches.
@@ -358,6 +380,18 @@ enum Message {
     WindowFocus(bool),
     /// A desktop notification was posted (or failed and was logged).
     Notified,
+
+    // Tag editor.
+    EditTags(String),
+    /// Keyed by album id so a read for an editor since closed is dropped.
+    TagsRead(String, Result<Vec<tasks::ReadTags>, String>),
+    Editor(tag_editor::Edit),
+    PickCover,
+    CoverPicked(Result<Option<Vec<u8>>, String>),
+    SaveTags,
+    CoverPlanned(Result<CoverPlan, String>),
+    TagsSaved(i64, Result<Saved, String>),
+    CloseTagEditor,
 }
 
 impl App {
@@ -414,6 +448,7 @@ impl App {
             cover_requests: HashSet::new(),
             queue: Vec::new(),
             collapsed: HashSet::new(),
+            tag_editor: None,
             downloading: false,
             batch: Vec::new(),
             window_focused: true,
@@ -1006,7 +1041,201 @@ impl App {
                 Task::none()
             }
             Message::Notified => Task::none(),
+            Message::EditTags(album_id) => self.open_tag_editor(album_id),
+            Message::TagsRead(album_id, result) => {
+                if self.tag_editor.as_ref().map(EditorSlot::album_id) != Some(&album_id) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(read) => {
+                        self.tag_editor =
+                            Some(EditorSlot::Open(Box::new(TagEditor::new(album_id, read))));
+                    }
+                    Err(e) => {
+                        self.tag_editor = None;
+                        self.status = Some(Status::error(format!("Could not read tags: {e}")));
+                    }
+                }
+                Task::none()
+            }
+            Message::Editor(edit) => {
+                if let Some(editor) = self.open_editor_mut() {
+                    if editor.saving.is_none() {
+                        editor.apply(edit);
+                    }
+                }
+                Task::none()
+            }
+            Message::PickCover => Task::perform(tasks::pick_cover(), Message::CoverPicked),
+            Message::CoverPicked(Ok(Some(image))) => {
+                let size = self.config.cover_size;
+                // A save in progress ends by reloading the files, which would
+                // drop a cover picked meanwhile without saving it.
+                if let Some(editor) = self.open_editor_mut().filter(|e| e.saving.is_none()) {
+                    editor.replace_cover(image, size);
+                }
+                Task::none()
+            }
+            Message::CoverPicked(Ok(None)) => Task::none(),
+            Message::CoverPicked(Err(e)) => {
+                self.status = Some(Status::error(e));
+                Task::none()
+            }
+            Message::SaveTags => {
+                if !self.can_save_tags() {
+                    return Task::none();
+                }
+                let Some(editor) = self.open_editor_mut() else {
+                    return Task::none();
+                };
+                let cover = editor.start_saving();
+                Task::perform(tasks::plan_cover(cover), Message::CoverPlanned)
+            }
+            Message::CoverPlanned(result) => {
+                let Some(editor) = self.open_editor_mut() else {
+                    return Task::none();
+                };
+                match result {
+                    Ok(plan) => {
+                        let next = editor.cover_planned(plan);
+                        self.save_next(next)
+                    }
+                    Err(e) => {
+                        editor.finish_saving();
+                        self.status =
+                            Some(Status::error(format!("Could not prepare the cover: {e}")));
+                        Task::none()
+                    }
+                }
+            }
+            Message::TagsSaved(track_id, result) => {
+                let Some(editor) = self.open_editor_mut() else {
+                    return Task::none();
+                };
+                let next = editor.file_saved(track_id, result);
+                self.save_next(next)
+            }
+            Message::CloseTagEditor => {
+                let saving = self
+                    .open_editor()
+                    .is_some_and(|editor| editor.saving.is_some());
+                if !saving {
+                    self.tag_editor = None;
+                }
+                Task::none()
+            }
         }
+    }
+
+    /// Whether an album's tags can be edited now: it has a done track, and no
+    /// track still queued, downloading or tagging, or in the running batch.
+    fn tags_editable(&self, album_id: &str) -> bool {
+        self.group_editable(self.queue.iter().filter(|it| it.job.album.id == album_id))
+    }
+
+    /// [`App::tags_editable`] over one album's own tracks, so the Queue view
+    /// can decide per group without scanning the whole queue again.
+    fn group_editable<'a>(&self, items: impl IntoIterator<Item = &'a QueueItem>) -> bool {
+        let mut any_done = false;
+        for it in items {
+            let in_batch = self.downloading && self.batch.contains(&it.track_id);
+            match it.status {
+                ItemStatus::Done(_) if !in_batch => any_done = true,
+                ItemStatus::Error(_) if !in_batch => {}
+                _ => return false,
+            }
+        }
+        any_done
+    }
+
+    fn open_tag_editor(&mut self, album_id: String) -> Task<Message> {
+        if !self.tags_editable(&album_id) {
+            return Task::none();
+        }
+        let files: Vec<(Job, PathBuf)> = self
+            .queue
+            .iter()
+            .filter(|it| it.job.album.id == album_id && matches!(it.status, ItemStatus::Done(_)))
+            .filter_map(|it| Some((it.job.clone(), it.path.clone()?)))
+            .collect();
+        self.tag_editor = Some(EditorSlot::Loading(album_id.clone()));
+        Task::perform(tasks::read_tags(files), move |read| {
+            Message::TagsRead(album_id.clone(), read)
+        })
+    }
+
+    fn open_editor(&self) -> Option<&TagEditor> {
+        match &self.tag_editor {
+            Some(EditorSlot::Open(editor)) => Some(&**editor),
+            _ => None,
+        }
+    }
+
+    fn open_editor_mut(&mut self) -> Option<&mut TagEditor> {
+        match &mut self.tag_editor {
+            Some(EditorSlot::Open(editor)) => Some(&mut **editor),
+            _ => None,
+        }
+    }
+
+    /// Whether Save can run: there are valid edits, no save is under way, and
+    /// the album hasn't gone back into a download since the editor opened.
+    fn can_save_tags(&self) -> bool {
+        self.open_editor()
+            .is_some_and(|editor| editor.has_edits() && self.save_ready(editor))
+    }
+
+    /// Everything [`App::can_save_tags`] checks but whether there are edits,
+    /// for a view that has already worked that out.
+    fn save_ready(&self, editor: &TagEditor) -> bool {
+        editor.saving.is_none() && !editor.has_invalid() && self.tags_editable(&editor.album_id)
+    }
+
+    /// Save the next file, or report the finished save and read the files
+    /// back, so the editor shows what they now hold.
+    fn save_next(&mut self, next: Option<tag_editor::NextSave>) -> Task<Message> {
+        if let Some((track_id, path, edits, plan)) = next {
+            return Task::perform(tasks::save_tags(path, edits, plan), move |result| {
+                Message::TagsSaved(track_id, result)
+            });
+        }
+        let Some(report) = self.open_editor_mut().and_then(TagEditor::finish_saving) else {
+            return Task::none();
+        };
+        let saved = match report.written {
+            1 => "Saved 1 file".to_owned(),
+            n => format!("Saved {n} files"),
+        };
+        if !report.failures.is_empty() {
+            // The edits stay as typed, so Save retries them once the problem
+            // is fixed; files already saved then count as unchanged.
+            self.status = Some(Status::error(format!(
+                "{saved}; {} failed — {}. Save again to retry.",
+                report.failures.len(),
+                report.failures.join("; ")
+            )));
+            return Task::none();
+        }
+        let album_id = self
+            .tag_editor
+            .as_ref()
+            .map(|slot| slot.album_id().to_owned())
+            .unwrap_or_default();
+        if !self.tags_editable(&album_id) {
+            // Re-queued meanwhile: its files may be rewritten by a download,
+            // so the editor can't show what they hold.
+            self.tag_editor = None;
+            self.status = Some(Status::info(format!(
+                "{saved}. The album is back in the queue, so the editor closed."
+            )));
+            return Task::none();
+        }
+        self.status = Some(if report.written == 0 {
+            Status::info("Nothing to save: the files already hold these values.")
+        } else {
+            Status::success(format!("{saved}."))
+        });
+        self.open_tag_editor(album_id)
     }
 
     /// The folder an album group's downloaded files share, once any is done.
@@ -2108,5 +2337,142 @@ mod tests {
         let _ = app.update(Message::ShowMore(Kind::Albums));
         assert!(app.status.is_none());
         assert!(app.results.albums.loading);
+    }
+
+    #[test]
+    fn tags_are_editable_once_an_album_is_settled() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/m/a/1.flac"),
+            queued(2, "a", ItemStatus::Error("x".into())),
+        ];
+        assert!(app.tags_editable("a"));
+
+        app.queue.push(queued(3, "a", ItemStatus::Queued));
+        assert!(!app.tags_editable("a"), "a queued track blocks editing");
+
+        app.queue = vec![queued(1, "b", ItemStatus::Error("x".into()))];
+        assert!(!app.tags_editable("b"), "nothing done to edit");
+    }
+
+    #[test]
+    fn tags_are_not_editable_while_in_the_running_batch() {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/m/a/1.flac")];
+        app.downloading = true;
+        app.batch = vec![1];
+        assert!(!app.tags_editable("a"));
+    }
+
+    /// An app whose editor is open on album "a", with one track read.
+    fn editing() -> App {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/m/a/1.flac")];
+        let _ = app.update(Message::EditTags("a".into()));
+        let job = app.queue[0].job.clone();
+        let read = vec![(job, PathBuf::from("/m/a/1.flac"), Ok(Default::default()))];
+        let _ = app.update(Message::TagsRead("a".into(), Ok(read)));
+        app
+    }
+
+    #[test]
+    fn edit_tags_opens_the_editor_after_reading() {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/m/a/1.flac")];
+        let _ = app.update(Message::EditTags("a".into()));
+        assert!(matches!(app.tag_editor, Some(EditorSlot::Loading(ref id)) if id == "a"));
+
+        let app = editing();
+        assert_eq!(app.open_editor().map(|e| e.tracks.len()), Some(1));
+    }
+
+    #[test]
+    fn a_read_for_another_album_is_dropped() {
+        let mut app = editing();
+        let _ = app.update(Message::TagsRead("other".into(), Ok(Vec::new())));
+        assert_eq!(app.open_editor().map(|e| e.album_id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn picked_cover_takes_the_download_size() {
+        let mut app = editing();
+        app.config.cover_size = qobuz_core::CoverSize::Px500;
+        let _ = app.update(Message::CoverPicked(Ok(Some(vec![1, 2, 3]))));
+        let editor = app.open_editor().unwrap();
+        assert_eq!(editor.resize, Some(qobuz_core::CoverSize::Px500));
+    }
+
+    /// `editing()` with track 1's title changed and its save under way, the
+    /// cover plan ready and the file handed to the save task.
+    fn saving_title() -> App {
+        let mut app = editing();
+        let _ = app.update(Message::Editor(tag_editor::Edit::TrackText(
+            1,
+            qobuz_core::tag_edit::Field::Title,
+            "New".into(),
+        )));
+        let _ = app.update(Message::SaveTags);
+        let plan = qobuz_core::tag_edit::CoverPlan::new(Default::default());
+        let _ = app.update(Message::CoverPlanned(Ok(plan)));
+        app
+    }
+
+    #[test]
+    fn failed_save_keeps_the_edits_to_retry() {
+        let mut app = saving_title();
+        let _ = app.update(Message::TagsSaved(1, Err("read-only".into())));
+        let editor = app.open_editor().expect("editor stays open");
+        assert!(editor.saving.is_none());
+        assert!(editor.has_edits(), "the edit is kept for a retry");
+        assert!(app.can_save_tags());
+        assert_eq!(
+            app.status.as_ref().map(|s| s.kind),
+            Some(status::StatusKind::Error)
+        );
+    }
+
+    #[test]
+    fn save_closes_the_editor_when_the_album_was_requeued() {
+        let mut app = saving_title();
+        app.queue[0].status = ItemStatus::Queued;
+        let _ = app.update(Message::TagsSaved(1, Ok(Saved::Written)));
+        assert!(app.tag_editor.is_none());
+    }
+
+    #[test]
+    fn cover_picked_during_a_save_is_ignored() {
+        let mut app = saving_title();
+        let _ = app.update(Message::CoverPicked(Ok(Some(vec![1, 2, 3]))));
+        let editor = app.open_editor().unwrap();
+        assert_eq!(editor.cover, qobuz_core::tag_edit::CoverAction::Keep);
+    }
+
+    #[test]
+    fn save_needs_edits_and_close_waits_for_it() {
+        let mut app = editing();
+        assert!(!app.can_save_tags(), "nothing to save yet");
+        let _ = app.update(Message::Editor(tag_editor::Edit::TrackText(
+            1,
+            qobuz_core::tag_edit::Field::Title,
+            "New".into(),
+        )));
+        assert!(app.can_save_tags());
+
+        let _ = app.update(Message::SaveTags);
+        assert!(app.open_editor().is_some_and(|e| e.saving.is_some()));
+        let _ = app.update(Message::CloseTagEditor);
+        assert!(app.tag_editor.is_some(), "can't close mid-save");
+    }
+
+    #[test]
+    fn edited_album_keeps_its_cover_loaded() {
+        let mut app = editing();
+        app.queue[0].job.album.image = Some(qobuz_core::models::Image {
+            thumbnail: Some("http://x/a.jpg".into()),
+            small: Some("http://x/a.jpg".into()),
+            large: Some("http://x/a.jpg".into()),
+        });
+        let url = tasks::thumbnail(app.queue[0].job.album.image.as_ref()).unwrap();
+        assert!(app.covers_in_use().contains(&url));
     }
 }

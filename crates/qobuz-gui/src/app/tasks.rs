@@ -8,6 +8,7 @@ use iced::futures::future;
 use qobuz_core::catalog::Reference;
 use qobuz_core::engine::{self, Job};
 use qobuz_core::models::{AlbumList, Image, TrackList};
+use qobuz_core::tag_edit::{self, CoverEdit, CoverPlan, Saved, TagEdits, TagFields};
 use qobuz_core::{AppCredentials, QobuzClient, SigningCheck};
 use std::path::PathBuf;
 
@@ -204,5 +205,67 @@ pub(super) async fn fetch_thumbnail(url: String) -> Result<Vec<u8>, ()> {
 pub(super) async fn resolve(client: QobuzClient, reference: Reference) -> Result<Vec<Job>, String> {
     engine::resolve(&client, &reference)
         .await
+        .map_err(|e| e.to_string())
+}
+
+/// What reading one track's file gave: its tags, or why it can't be edited.
+pub(super) type ReadTags = (Job, PathBuf, Result<TagFields, String>);
+
+/// Read the tags of an album's done tracks on a blocking thread.
+pub(super) async fn read_tags(files: Vec<(Job, PathBuf)>) -> Result<Vec<ReadTags>, String> {
+    tokio::task::spawn_blocking(move || {
+        files
+            .into_iter()
+            .map(|(job, path)| {
+                let tags = tag_edit::read_fields(&path).map_err(|e| e.to_string());
+                (job, path, tags)
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Pick a JPEG or PNG file and read it. `Ok(None)` when the dialog is
+/// cancelled; an error when the file can't be read or isn't such an image.
+pub(super) async fn pick_cover() -> Result<Option<Vec<u8>>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Image", &["jpg", "jpeg", "png"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    // Not `file.read()`: rfd unwraps the read result, so an unreadable file
+    // would panic instead of being reported.
+    let unreadable = || format!("{} is not a readable JPEG or PNG image.", file.file_name());
+    let bytes = tokio::fs::read(file.path())
+        .await
+        .map_err(|e| format!("{}: {e}", unreadable()))?;
+    let (bytes, readable) = tokio::task::spawn_blocking(move || {
+        let readable = qobuz_core::artwork::is_cover_image(&bytes);
+        (bytes, readable)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    readable.then_some(Some(bytes)).ok_or_else(unreadable)
+}
+
+/// Resize a replacement cover once for the whole album, off the UI thread.
+pub(super) async fn plan_cover(edit: CoverEdit) -> Result<CoverPlan, String> {
+    tokio::task::spawn_blocking(move || CoverPlan::new(edit))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Save one file's edits on a blocking thread.
+pub(super) async fn save_tags(
+    path: PathBuf,
+    edits: TagEdits,
+    cover: CoverPlan,
+) -> Result<Saved, String> {
+    tokio::task::spawn_blocking(move || tag_edit::save_file(&path, &edits, &cover))
+        .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
