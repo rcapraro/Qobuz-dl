@@ -1,11 +1,12 @@
 //! Static help panels for the settings cards. Pure content — nothing here
 //! reads `App` state.
 
-use super::view::{card, section};
+use super::view::section;
 use super::Message;
 use crate::style::{self, compact_button};
-use iced::widget::{column, row, text, Column};
+use iced::widget::{column, container, row, text, Column};
 use iced::{Element, Length};
+use qobuz_core::config::MAX_CONCURRENCY;
 
 /// One `mono token — description` row for a help panel.
 fn help_term(token: &'static str, desc: &'static str) -> Element<'static, Message> {
@@ -40,11 +41,15 @@ fn devtools_shortcut() -> &'static str {
 
 /// Help for the API credentials card: what the fields are and how to obtain them.
 pub(super) fn credentials_help() -> Element<'static, Message> {
-    column![
+    help_panel(column![
         help_term("app_id", "Public client id, sent as the x-app-id request header."),
         help_term(
             "app_secret",
             "Secret used to sign track file-URL requests; never sent as-is.",
+        ),
+        help_term(
+            "Check signing",
+            "Sends one signed request with the current credentials and reports whether Qobuz accepts the signature. Needs a sign-in.",
         ),
         help_lines(["Normally you don't need to do anything here — press \"Auto-detect\" and the app extracts both values from the Qobuz web player for you.".into()]),
         text("Manual fallback (if auto-detect fails)").size(style::TEXT_BODY),
@@ -57,12 +62,12 @@ pub(super) fn credentials_help() -> Element<'static, Message> {
         ]),
     ]
     .spacing(style::SPACE_XS)
-    .into()
+    )
 }
 
 /// Help for the Account card: how to obtain the user_auth_token and sign in.
 pub(super) fn account_help() -> Element<'static, Message> {
-    column![
+    help_panel(column![
         text("Signing in with a token").size(style::TEXT_BODY),
         help_lines([
             "Qobuz sign-in uses your account's user_auth_token (email/password login is not supported — it does not work for partner/bundled accounts such as Qobuz via a telco).".into(),
@@ -77,22 +82,22 @@ pub(super) fn account_help() -> Element<'static, Message> {
         ]),
     ]
     .spacing(style::SPACE_XS)
-    .into()
+    )
 }
 
 /// Help for the Options card: quality tiers, concurrency, and cover-art embedding.
 pub(super) fn options_help() -> Element<'static, Message> {
-    column![
+    help_panel(column![
         text("Options").size(style::TEXT_BODY),
         help_lines([
             "• Quality: MP3 320 · FLAC 16/44.1 (CD) · FLAC 24/≤96 · FLAC 24/≤192 (Hi-Res). The service may deliver a lower tier than requested; the actual quality is read from the response.".into(),
-            "• Concurrency: how many tracks download at once (1–16).".into(),
+            format!("• Concurrency: how many tracks download at once (1–{MAX_CONCURRENCY})."),
             "• Embed cover art: writes the album cover into each downloaded file's tags.".into(),
-            "• Notify when downloads finish: posts a desktop notification when a batch ends while the app is in the background (not after Cancel).".into(),
+            "• Notify when done: posts a desktop notification when a batch ends while the app is in the background (not after Cancel).".into(),
         ]),
     ]
     .spacing(style::SPACE_XS)
-    .into()
+    )
 }
 
 /// Example folder templates offered in the help panel (using real placeholders).
@@ -168,7 +173,24 @@ pub(super) fn template_help() -> Element<'static, Message> {
         track_ex = track_ex.push(example_row(t, Message::TrackFormatChanged(t.to_string())));
     }
 
-    let body = column![section("Placeholders"), list, rules, folder_ex, track_ex,]
-        .spacing(style::SPACE_SM);
-    card("Template help", body)
+    help_panel(
+        column![
+            text("Template help").size(style::TEXT_BODY),
+            section("Placeholders"),
+            list,
+            rules,
+            folder_ex,
+            track_ex,
+        ]
+        .spacing(style::SPACE_SM),
+    )
+}
+
+/// Sets a help panel apart from the card it opens in.
+fn help_panel<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content)
+        .style(style::help_panel)
+        .padding(style::SPACE_MD)
+        .width(Length::Fill)
+        .into()
 }

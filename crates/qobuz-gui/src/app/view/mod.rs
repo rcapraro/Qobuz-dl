@@ -106,16 +106,8 @@ pub(super) fn quality_badge<'a>(label: impl text::IntoFragment<'a>) -> Element<'
         .into()
 }
 
-/// A titled card grouping a section's controls.
-pub(super) fn card<'a>(
-    title: &'a str,
-    body: impl Into<Element<'a, Message>>,
-) -> Element<'a, Message> {
-    card_el(text(title).size(style::TEXT_SECTION), body)
-}
-
-/// Like [`card`] but with an arbitrary header element (e.g. a title plus a help
-/// toggle) instead of a plain title.
+/// A card grouping a section's controls under an arbitrary header element, such
+/// as a title plus a help toggle.
 pub(super) fn card_el<'a>(
     head_content: impl Into<Element<'a, Message>>,
     body: impl Into<Element<'a, Message>>,

@@ -9,19 +9,30 @@ use crate::style::{
 use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Element, Length};
 use iced_aw::widget::number_input::NumberInput;
+use qobuz_core::config::MAX_CONCURRENCY;
 use qobuz_core::quality::Quality;
+
+/// Fits a 9-digit app id, so the secret beside it gets the rest of the row.
+const APP_ID_WIDTH: f32 = 140.0;
+/// Fits two digits plus the stepper's carets.
+const CONCURRENCY_WIDTH: f32 = 72.0;
 
 pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
     let mut creds_body = column![
         labeled_row(
             "App ID:",
-            field_input("app_id", &app.config.app_id).on_input(Message::AppIdChanged),
-        ),
-        labeled_row(
-            "App secret:",
-            field_input("app_secret", &app.config.app_secret)
-                .secure(true)
-                .on_input(Message::AppSecretChanged),
+            row![
+                field_input("app_id", &app.config.app_id)
+                    .on_input(Message::AppIdChanged)
+                    .width(Length::Fixed(APP_ID_WIDTH)),
+                text("App secret:"),
+                field_input("app_secret", &app.config.app_secret)
+                    .secure(true)
+                    .on_input(Message::AppSecretChanged)
+                    .width(Length::Fill),
+            ]
+            .spacing(style::SPACE_MD)
+            .align_y(iced::Alignment::Center),
         ),
         labeled_row(
             "",
@@ -32,14 +43,6 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                 secondary_button("Check signing", Message::CheckSigning).width(Length::Shrink),
             ]
             .spacing(style::SPACE_SM),
-        ),
-        labeled_row(
-            "",
-            text(
-                "Auto-detect fetches app_id and app_secret from the Qobuz web player; \
-                 Check signing verifies them (requires sign-in)."
-            )
-            .size(style::TEXT_SM),
         ),
     ]
     .spacing(style::SPACE_SM);
@@ -93,35 +96,29 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
         .align_y(iced::Alignment::Center),
     );
 
-    let mut options_body = column![
-        labeled_row(
-            "Quality:",
-            row![
-                pick_list(
-                    Quality::ALL.to_vec(),
-                    Some(app.config.quality),
-                    Message::QualitySelected,
-                ),
-                iced::widget::horizontal_space(),
-                text("Concurrency:"),
-                NumberInput::new(&app.config.concurrency, 1..=16, Message::ConcurrencyChanged)
-                    .step(1)
-                    .width(Length::Fixed(120.0)),
-            ]
-            .spacing(style::SPACE_MD)
-            .align_y(iced::Alignment::Center),
-        ),
-        labeled_row(
-            "",
-            row![
-                checkbox("Embed cover art", app.config.embed_art)
-                    .on_toggle(Message::EmbedArtToggled),
-                checkbox("Notify when downloads finish", app.config.notify_on_finish)
-                    .on_toggle(Message::NotifyToggled),
-            ]
-            .spacing(style::SPACE_LG),
-        ),
-    ]
+    let mut options_body = column![labeled_row(
+        "Quality:",
+        row![
+            pick_list(
+                Quality::ALL.to_vec(),
+                Some(app.config.quality),
+                Message::QualitySelected,
+            ),
+            text("Concurrency:"),
+            NumberInput::new(
+                &app.config.concurrency,
+                1..=MAX_CONCURRENCY,
+                Message::ConcurrencyChanged,
+            )
+            .step(1)
+            .width(Length::Fixed(CONCURRENCY_WIDTH)),
+            checkbox("Embed cover art", app.config.embed_art).on_toggle(Message::EmbedArtToggled),
+            checkbox("Notify when done", app.config.notify_on_finish)
+                .on_toggle(Message::NotifyToggled),
+        ]
+        .spacing(style::SPACE_MD)
+        .align_y(iced::Alignment::Center),
+    )]
     .spacing(style::SPACE_SM);
     if app.show_options_help {
         options_body = options_body.push(options_help());

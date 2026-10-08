@@ -12,6 +12,9 @@ use std::path::PathBuf;
 pub const DEFAULT_FOLDER_FORMAT: &str =
     "{albumartist} - {album} ({year}) [{container}] [{bit_depth}B-{sampling_rate}kHz]";
 pub const DEFAULT_TRACK_FORMAT: &str = "{tracknumber:02}. {artist} - {title}";
+/// Upper bound for simultaneous track downloads; the Settings control and
+/// [`Config::load`] both enforce it.
+pub const MAX_CONCURRENCY: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -71,10 +74,18 @@ impl Config {
     pub fn load() -> Result<Config> {
         let path = Self::config_path()?;
         match std::fs::read_to_string(&path) {
-            Ok(s) => Ok(serde_json::from_str(&s)?),
+            Ok(s) => Self::parse(&s),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
             Err(e) => Err(Error::Io(e)),
         }
+    }
+
+    /// Deserialize a saved config, bringing a concurrency saved under an older,
+    /// wider range back into `1..=MAX_CONCURRENCY`.
+    fn parse(json: &str) -> Result<Config> {
+        let mut config: Config = serde_json::from_str(json)?;
+        config.concurrency = config.concurrency.clamp(1, MAX_CONCURRENCY);
+        Ok(config)
     }
 
     /// Persist config to disk (creating the directory as needed).
@@ -143,6 +154,16 @@ mod tests {
         assert_eq!(c.quality, Quality::Flac24);
         assert!(c.folder_format.contains("{albumartist}"));
         assert!(!c.has_app_credentials());
+    }
+
+    #[test]
+    fn saved_concurrency_is_clamped_to_the_range() {
+        let high = Config::parse(r#"{"concurrency": 16}"#).unwrap();
+        assert_eq!(high.concurrency, MAX_CONCURRENCY);
+        let zero = Config::parse(r#"{"concurrency": 0}"#).unwrap();
+        assert_eq!(zero.concurrency, 1);
+        let ok = Config::parse(r#"{"concurrency": 4}"#).unwrap();
+        assert_eq!(ok.concurrency, 4);
     }
 
     #[test]

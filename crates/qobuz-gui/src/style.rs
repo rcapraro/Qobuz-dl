@@ -190,6 +190,7 @@ pub struct Accents {
     pub on_accent: Color,
     pub blue: Color,
     pub sky: Color,
+    pub sapphire: Color,
     pub lavender: Color,
     pub teal: Color,
     pub green: Color,
@@ -233,6 +234,12 @@ impl Accents {
     pub fn quality(&self) -> Color {
         self.teal
     }
+
+    /// Help and explanatory panels — used by nothing else. Not sky, which is
+    /// the primary button's hover colour.
+    pub fn info(&self) -> Color {
+        self.sapphire
+    }
 }
 
 /// Resolve the accent palette for the active flavor (defaults to Macchiato).
@@ -260,6 +267,7 @@ const MACCHIATO: Accents = Accents {
     on_accent: rgb(0x181926),
     blue: rgb(0x8aadf4),
     sky: rgb(0x91d7e3),
+    sapphire: rgb(0x7dc4e4),
     lavender: rgb(0xb7bdf8),
     teal: rgb(0x8bd5ca),
     green: rgb(0xa6da95),
@@ -277,6 +285,7 @@ const LATTE: Accents = Accents {
     on_accent: rgb(0xeff1f5),
     blue: rgb(0x1e66f5),
     sky: rgb(0x04a5e5),
+    sapphire: rgb(0x209fb5),
     lavender: rgb(0x7287fd),
     teal: rgb(0x179299),
     green: rgb(0x40a02b),
@@ -335,6 +344,23 @@ pub fn hero(theme: &Theme) -> container::Style {
             },
             width: 1.0,
             radius: 10.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+/// A help panel opened inside a card: a soft wash of the info accent with a
+/// matching border, so explanations read apart from the form around them.
+pub fn help_panel(theme: &Theme) -> container::Style {
+    let a = accents(theme);
+    let info = a.info();
+    container::Style {
+        background: Some(Background::Color(Color { a: 0.12, ..info })),
+        text_color: Some(a.text),
+        border: Border {
+            color: Color { a: 0.6, ..info },
+            width: 1.0,
+            radius: 8.0.into(),
         },
         ..container::Style::default()
     }
@@ -484,6 +510,7 @@ mod tests {
             assert_eq!(a.error(), a.red);
             assert_eq!(a.quality(), a.teal);
             assert_eq!(a.highlight(), a.lavender);
+            assert_eq!(a.info(), a.sapphire);
         }
     }
 
