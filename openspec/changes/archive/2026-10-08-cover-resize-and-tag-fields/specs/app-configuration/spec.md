@@ -1,8 +1,7 @@
-# app-configuration Specification
+# Spec Delta
 
-## Purpose
-TBD - created by archiving change add-qobuz-downloader. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Persist settings
 The system SHALL persist user settings — download directory, quality tier,
 folder template, track template, cover art setting (Off or a size), download
@@ -20,20 +19,3 @@ directory, and SHALL reload them on startup.
 #### Scenario: Cover art setting from an older configuration
 - **WHEN** the app starts with a configuration saved before the cover art size existed
 - **THEN** cover art is Off if embedding was disabled there, and 600 px otherwise
-
-### Requirement: Secrets excluded from config file
-The system SHALL NOT store the `user_auth_token` or password in the plaintext
-configuration file; the token is delegated to the keyring.
-
-#### Scenario: Config file contains no token
-- **WHEN** the user inspects the saved configuration file
-- **THEN** it contains settings and app credentials but no `user_auth_token` or password
-
-### Requirement: Live template preview
-The system SHALL show a preview of the rendered path for the current folder and
-track templates as the user edits them.
-
-#### Scenario: Preview updates
-- **WHEN** the user edits the folder or track template in settings
-- **THEN** the system displays an example rendered path reflecting the current templates
-

@@ -54,7 +54,8 @@ visible independent of the selected tab.
 ### Requirement: Settings screen
 The system SHALL provide a settings screen exposing Qobuz sign-in via a
 `user_auth_token`, `app_id`/`app_secret`, download-directory picker, quality
-selector, cover-art toggle, folder/track template fields with a live preview, and
+selector, Cover art selector (Off, 400 px, 500 px, 600 px),
+folder/track template fields with a live preview, and
 a bounded numeric concurrency control that accepts only values in the range 1–10.
 A persisted concurrency above 10 SHALL be treated as 10.
 The account section SHALL NOT offer email/password login (unsupported by Qobuz for
@@ -80,6 +81,10 @@ web player.
 #### Scenario: Saved concurrency above the range
 - **WHEN** the app starts with a persisted concurrency above 10
 - **THEN** the concurrency control shows 10, downloads run at most 10 tracks at once, and no unsaved-changes hint is shown
+
+#### Scenario: Choose a cover size
+- **WHEN** the user picks 400 px in the Cover art selector and saves
+- **THEN** later downloads embed covers scaled down to 400 px
 
 ### Requirement: Search and add screen
 The system SHALL provide a screen with a single input field that both searches
@@ -657,11 +662,11 @@ Each Settings card SHALL present at most one control in the primary button style
 - **THEN** Sign in is the only primary button and Sign out is secondary
 
 ### Requirement: Single-line Options card
-The Options card SHALL lay out its controls on one line: Quality on the label column, then Concurrency, then the Embed cover art and Notify checkboxes.
+The Options card SHALL lay out its controls on one line: Quality on the label column, then Concurrency, then the Cover art selector and the Notify checkbox.
 
 #### Scenario: Options on one line
 - **WHEN** the user views the Options card at the default window size
-- **THEN** Quality, Concurrency and both checkboxes share one line, with Quality starting on the label column
+- **THEN** Quality, Concurrency, the Cover art selector and the Notify checkbox share one line, with Quality starting on the label column
 
 ### Requirement: Delivered quality per album group
 A queue group header SHALL show the delivered quality shared by most of its done tracks, once at least one track is done. A done row SHALL show its own delivered quality only when it differs from its group's, so a track the service delivered at another tier stays visible on its row while its group is expanded.

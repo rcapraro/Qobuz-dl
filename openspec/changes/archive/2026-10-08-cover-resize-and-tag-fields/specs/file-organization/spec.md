@@ -1,39 +1,6 @@
-# file-organization Specification
+# Spec Delta
 
-## Purpose
-TBD - created by archiving change add-qobuz-downloader. Update Purpose after archive.
-## Requirements
-### Requirement: Configurable path templates
-The system SHALL render the destination folder and file name from user-defined
-templates supporting placeholders including `{albumartist}`, `{artist}`,
-`{title}`, `{album}`, `{year}`, `{tracknumber}` (with zero-padding, e.g.
-`{tracknumber:02}`), `{bit_depth}`, `{sampling_rate}`, `{container}`, and
-`{explicit}`.
-
-#### Scenario: Template rendered
-- **WHEN** the folder template is `{albumartist} - {album} ({year})` and the track template is `{tracknumber:02}. {title}`
-- **THEN** a track is written to a matching path such as `Artist - Album (2020)/01. Song.flac`
-
-#### Scenario: Multi-disc handling
-- **WHEN** an album has more than one disc
-- **THEN** the system organizes tracks into per-disc subfolders
-
-### Requirement: Path sanitization
-The system SHALL sanitize each rendered path segment by removing or replacing
-characters illegal on target filesystems (`/ \ : * ? " < > |`) and trimming
-overly long segments.
-
-#### Scenario: Illegal characters removed
-- **WHEN** a track title contains characters like `:` or `?`
-- **THEN** the rendered path segment has those characters stripped or replaced so the file writes successfully on macOS, Windows, and Linux
-
-### Requirement: Choose download directory
-The system SHALL let the user select the base download directory via a native
-directory picker.
-
-#### Scenario: Directory selected
-- **WHEN** the user picks a download directory in settings
-- **THEN** subsequent downloads are written under that directory using the configured templates
+## MODIFIED Requirements
 
 ### Requirement: Write audio tags
 The system SHALL write metadata tags to downloaded files, including title,
@@ -71,6 +38,8 @@ setting.
 - **WHEN** the Cover art setting is Off
 - **THEN** downloaded files contain no embedded cover art and downloading still succeeds
 
+## ADDED Requirements
+
 ### Requirement: Cover art size limit
 The Cover art setting SHALL offer Off, 400 px, 500 px and 600 px, 600 px being the size of Qobuz's own cover. The system SHALL use the service's 600 px cover as the source. For a pixel size, the embedded image's longest side SHALL NOT exceed it, and the system SHALL NOT enlarge an image smaller than the chosen size.
 
@@ -104,4 +73,3 @@ When a cover must be made smaller, the system SHALL resample it with a high-qual
 #### Scenario: Unreadable cover still embedded
 - **WHEN** the cover cannot be decoded for resizing
 - **THEN** the original cover bytes are embedded and the track completes normally
-

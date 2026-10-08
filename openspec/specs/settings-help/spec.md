@@ -59,14 +59,15 @@ session credential is stored.
 ### Requirement: Options help
 
 The Options card help SHALL explain the quality selector, the concurrency control,
-and the cover-art toggle.
+and the Cover art selector.
 
 #### Scenario: Options explained
 
 - **WHEN** the user opens the Options help
 - **THEN** it describes the available quality tiers and notes that the delivered
   quality may be downgraded by the service, the meaning of the concurrency value and
-  its allowed range, and the effect of the embed-cover-art toggle
+  its allowed range, and what each Cover art choice embeds: nothing for Off, Qobuz's
+  cover as delivered for 600 px, and that cover scaled down for 400 px and 500 px
 
 ### Requirement: Help panels stand apart from the form
 Every Settings help panel (API credentials, Account, Options and File organization templates) SHALL be shown in one shared panel style, a tinted and bordered container distinct from the card body it opens in, so explanations never read as part of the form.
