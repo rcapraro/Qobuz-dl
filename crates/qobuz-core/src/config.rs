@@ -13,6 +13,7 @@ use std::path::PathBuf;
 pub const DEFAULT_FOLDER_FORMAT: &str =
     "{albumartist} - {album} ({year}) [{container}] [{bit_depth}B-{sampling_rate}kHz]";
 pub const DEFAULT_TRACK_FORMAT: &str = "{tracknumber:02}. {artist} - {title}";
+pub const DEFAULT_RENAME_FORMAT: &str = "{albumartist} - {album} ({year})";
 /// Upper bound for simultaneous track downloads; the Settings control and
 /// [`Config::load`] both enforce it.
 pub const MAX_CONCURRENCY: usize = 10;
@@ -28,6 +29,9 @@ pub struct Config {
     pub folder_format: String,
     /// Template for the track file name (extension appended automatically).
     pub track_format: String,
+    /// Template suggesting a new name when renaming an album's folder. One
+    /// segment: a `/` is sanitized rather than nesting.
+    pub rename_format: String,
     /// Whether to embed cover art into downloaded files.
     pub embed_art: bool,
     /// Largest embedded cover side; only used while `embed_art` is on.
@@ -54,6 +58,7 @@ impl Default for Config {
             quality: Quality::default(),
             folder_format: DEFAULT_FOLDER_FORMAT.to_string(),
             track_format: DEFAULT_TRACK_FORMAT.to_string(),
+            rename_format: DEFAULT_RENAME_FORMAT.to_string(),
             embed_art: true,
             cover_size: CoverSize::default(),
             concurrency: 3,
@@ -184,6 +189,13 @@ mod tests {
         let on = Config::parse(r#"{"embed_art": true}"#).unwrap();
         assert!(on.embed_art);
         assert_eq!(on.cover_size, CoverSize::Px600);
+    }
+
+    #[test]
+    fn config_saved_before_rename_format_loads_the_default() {
+        let c = Config::parse(r#"{"folder_format": "{album}"}"#).unwrap();
+        assert_eq!(c.folder_format, "{album}");
+        assert_eq!(c.rename_format, DEFAULT_RENAME_FORMAT);
     }
 
     #[test]

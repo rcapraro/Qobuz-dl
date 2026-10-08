@@ -8,6 +8,7 @@ use iced::futures::future;
 use qobuz_core::catalog::Reference;
 use qobuz_core::engine::{self, Job};
 use qobuz_core::models::{AlbumList, Image, TrackList};
+use qobuz_core::rename;
 use qobuz_core::tag_edit::{self, CoverEdit, CoverPlan, Saved, TagEdits, TagFields};
 use qobuz_core::{AppCredentials, QobuzClient, SigningCheck};
 use std::path::PathBuf;
@@ -268,4 +269,31 @@ pub(super) async fn save_tags(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// The rename template's folder name for the album holding `file`, read from
+/// its tags on a blocking thread; `None` when the template renders nothing.
+pub(super) async fn suggest_folder_name(
+    template: String,
+    file: PathBuf,
+) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || rename::suggest(&template, &file))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Rename an album folder on a blocking thread; the result is its new path.
+pub(super) async fn rename_folder(
+    download_dir: PathBuf,
+    folder: PathBuf,
+    album_files: Vec<PathBuf>,
+    name: String,
+) -> Result<PathBuf, String> {
+    tokio::task::spawn_blocking(move || {
+        rename::rename_folder(&download_dir, &folder, &album_files, &name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }

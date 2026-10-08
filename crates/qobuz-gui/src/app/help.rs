@@ -164,6 +164,17 @@ pub(super) fn template_help() -> Element<'static, Message> {
     ]
     .spacing(style::SPACE_XS);
 
+    let rename = column![
+        text("Rename template").size(style::TEXT_BODY),
+        help_lines([
+            "• Only suggests a name for Rename folder in the queue; downloads don't use it.".into(),
+            "• Its values come from the album's current file tags, so tag edits show up in the suggestion.".into(),
+            "• It yields a single folder name: \"/\" doesn't create subfolders.".into(),
+            "• A renamed folder no longer matches the folder format, so adding the album again downloads it anew.".into(),
+        ]),
+    ]
+    .spacing(style::SPACE_XS);
+
     let mut folder_ex = column![section("Folder examples")].spacing(style::SPACE_XS);
     for &t in FOLDER_EXAMPLES {
         folder_ex = folder_ex.push(example_row(t, Message::FolderFormatChanged(t.to_string())));
@@ -179,6 +190,7 @@ pub(super) fn template_help() -> Element<'static, Message> {
             section("Placeholders"),
             list,
             rules,
+            rename,
             folder_ex,
             track_ex,
         ]

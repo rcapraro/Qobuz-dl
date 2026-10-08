@@ -12,6 +12,7 @@ use iced::{Element, Length};
 use iced_aw::widget::number_input::NumberInput;
 use qobuz_core::config::MAX_CONCURRENCY;
 use qobuz_core::quality::Quality;
+use qobuz_core::template::{render_path, render_segment, TemplateContext};
 
 /// Fits a 9-digit app id, so the secret beside it gets the rest of the row.
 const APP_ID_WIDTH: f32 = 140.0;
@@ -131,7 +132,12 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
         options_body = options_body.push(options_help());
     }
 
-    let preview = template_preview(app);
+    let ctx = sample_context(app);
+    let preview = template_preview(app, &ctx);
+    let rename_preview = format!(
+        "Rename preview: {}",
+        render_segment(&app.config.rename_format, &ctx)
+    );
     let mut org_body = column![
         dir_row,
         labeled_row(
@@ -145,6 +151,12 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                 .on_input(Message::TrackFormatChanged),
         ),
         container(text(preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
+        labeled_row(
+            "Rename:",
+            field_input("rename format", &app.config.rename_format)
+                .on_input(Message::RenameFormatChanged),
+        ),
+        container(text(rename_preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
     ]
     .spacing(style::SPACE_SM);
     if app.show_template_help {
@@ -229,9 +241,8 @@ fn masked_token(token: &str) -> String {
     format!("••••…{suffix}")
 }
 
-/// A representative rendered path using the current templates.
-fn template_preview(app: &App) -> String {
-    use qobuz_core::template::{render_path, render_segment, TemplateContext};
+/// Sample values the template previews render.
+fn sample_context(app: &App) -> TemplateContext {
     let mut ctx = TemplateContext::new();
     ctx.set("albumartist", "Miles Davis")
         .set("artist", "Miles Davis")
@@ -243,8 +254,13 @@ fn template_preview(app: &App) -> String {
         .set("sampling_rate", "96")
         .set("explicit", "")
         .with_track_number(1);
-    let folder = render_path(&app.config.folder_format, &ctx).join("/");
-    let file = render_segment(&app.config.track_format, &ctx);
+    ctx
+}
+
+/// A representative rendered path using the current templates.
+fn template_preview(app: &App, ctx: &TemplateContext) -> String {
+    let folder = render_path(&app.config.folder_format, ctx).join("/");
+    let file = render_segment(&app.config.track_format, ctx);
     format!(
         "Preview: {}/{}.{}",
         folder,

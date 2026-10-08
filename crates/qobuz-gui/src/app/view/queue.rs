@@ -4,12 +4,13 @@ use super::super::album::guest_performer;
 use super::super::tasks::thumbnail;
 use super::super::{startable, App, EditorSlot, ItemStatus, Message, QueueItem};
 use super::{bold, cover, gutter_padding, quality_badge, tag_editor};
-use crate::style::{self, compact_button, secondary_button, styled_button};
+use crate::style::{self, compact_button, field_input, secondary_button, styled_button};
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
 use iced::{Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 use qobuz_core::engine::Job;
 use qobuz_core::models::Album;
+use qobuz_core::rename;
 
 pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
     // The editor takes the list's place, but downloads of other albums go on,
@@ -162,17 +163,12 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     }
     head = head.push(count);
 
-    if app.album_folder(&album.id).is_some() {
-        head = head.push(
-            compact_button("Open folder").on_press(Message::OpenAlbumFolder(album.id.clone())),
-        );
-    }
-    if app.group_editable(group.items.iter().copied()) {
-        head = head.push(compact_button("Edit tags").on_press(Message::EditTags(album.id.clone())));
-    }
-    if group.items.iter().any(|it| app.can_remove(it)) {
-        head = head.push(compact_button("Remove").on_press(Message::RemoveGroup(album.id.clone())));
-    }
+    head = head.push(
+        match app.rename.as_ref().filter(|r| r.album_id == album.id) {
+            Some(rename) => rename_field(&rename.name),
+            None => group_actions(app, &group),
+        },
+    );
 
     let mut body = column![
         head,
@@ -197,6 +193,48 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         .padding(style::SPACE_MD)
         .width(Length::Fill)
         .into()
+}
+
+/// Fits a typical `Artist - Album (Year)` name beside the group's title.
+const RENAME_FIELD_WIDTH: f32 = 320.0;
+
+/// A group header's actions on its settled tracks and their folder.
+fn group_actions<'a>(app: &'a App, group: &Group<'a>) -> Element<'a, Message> {
+    let id = &group.album.id;
+    let mut actions = row![].spacing(style::SPACE_SM);
+    if app.album_folder(id).is_some() {
+        actions = actions
+            .push(compact_button("Open folder").on_press(Message::OpenAlbumFolder(id.clone())));
+    }
+    if app.group_renamable(&group.items) {
+        actions = actions
+            .push(compact_button("Rename folder").on_press(Message::RenameFolder(id.clone())));
+    }
+    if app.group_editable(group.items.iter().copied()) {
+        actions = actions.push(compact_button("Edit tags").on_press(Message::EditTags(id.clone())));
+    }
+    if group.items.iter().any(|it| app.can_remove(it)) {
+        actions = actions.push(compact_button("Remove").on_press(Message::RemoveGroup(id.clone())));
+    }
+    actions.into()
+}
+
+/// The Rename folder field that replaces a group header's actions while open.
+fn rename_field(name: &str) -> Element<'_, Message> {
+    let valid = rename::folder_name(name).is_some();
+    row![
+        field_input("folder name", name)
+            .on_input(Message::RenameNameChanged)
+            .on_submit(Message::ConfirmRename)
+            .width(Length::Fixed(RENAME_FIELD_WIDTH)),
+        compact_button("Rename")
+            .style(style::primary_button)
+            .on_press_maybe(valid.then_some(Message::ConfirmRename)),
+        compact_button("Cancel").on_press(Message::CancelRename),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center)
+    .into()
 }
 
 /// What the Queue screen shows before anything has been added to it.

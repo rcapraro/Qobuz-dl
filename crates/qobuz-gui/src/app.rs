@@ -13,11 +13,12 @@ use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 use qobuz_core::engine::{Job, JobEvent};
 use qobuz_core::quality::Quality;
+use qobuz_core::rename;
 use qobuz_core::tag_edit::{CoverPlan, Saved};
 use qobuz_core::{auth, engine, AppCredentials, CancellationToken, QobuzClient, SigningCheck};
 use status::Status;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tag_editor::TagEditor;
 
 mod album;
@@ -227,6 +228,30 @@ impl EditorSlot {
     }
 }
 
+/// An album group's open Rename folder field.
+#[derive(Debug, Clone)]
+struct RenameState {
+    album_id: String,
+    name: String,
+    /// Whether the rename template's suggestion is still being read from the
+    /// files; typing cancels it, so a late suggestion never replaces typed text.
+    suggesting: bool,
+}
+
+/// Point every queue item whose file was inside `old` at the same file under `new`.
+fn rewrite_paths(queue: &mut [QueueItem], old: &Path, new: &Path) {
+    for it in queue {
+        let moved = it
+            .path
+            .as_deref()
+            .and_then(|p| p.strip_prefix(old).ok())
+            .map(|rest| new.join(rest));
+        if moved.is_some() {
+            it.path = moved;
+        }
+    }
+}
+
 /// How the active session's token came to be — shown in the Account card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TokenOrigin {
@@ -286,6 +311,7 @@ pub struct App {
     collapsed: HashSet<String>,
     /// An album's tag editor, shown on the Queue tab in place of the list.
     tag_editor: Option<EditorSlot>,
+    rename: Option<RenameState>,
     downloading: bool,
     /// Track ids of the running (or last) batch, so its outcome counts only
     /// its own tracks, not ones finished by earlier batches.
@@ -325,6 +351,7 @@ enum Message {
     SigningChecked(Result<SigningCheck, String>),
     FolderFormatChanged(String),
     TrackFormatChanged(String),
+    RenameFormatChanged(String),
     ConcurrencyChanged(usize),
     QualitySelected(Quality),
     CoverArtSelected(CoverArt),
@@ -392,6 +419,16 @@ enum Message {
     CoverPlanned(Result<CoverPlan, String>),
     TagsSaved(i64, Result<Saved, String>),
     CloseTagEditor,
+
+    // Rename folder.
+    RenameFolder(String),
+    /// Keyed by album id so a suggestion for a field since closed is dropped.
+    RenameSuggested(String, Result<Option<String>, String>),
+    RenameNameChanged(String),
+    ConfirmRename,
+    CancelRename,
+    /// Carries the folder as it was before the rename.
+    FolderRenamed(PathBuf, Result<PathBuf, String>),
 }
 
 impl App {
@@ -449,6 +486,7 @@ impl App {
             queue: Vec::new(),
             collapsed: HashSet::new(),
             tag_editor: None,
+            rename: None,
             downloading: false,
             batch: Vec::new(),
             window_focused: true,
@@ -642,6 +680,10 @@ impl App {
             }
             Message::TrackFormatChanged(v) => {
                 self.config.track_format = v;
+                Task::none()
+            }
+            Message::RenameFormatChanged(v) => {
+                self.config.rename_format = v;
                 Task::none()
             }
             Message::ConcurrencyChanged(n) => {
@@ -956,6 +998,7 @@ impl App {
             Message::ClearQueue => {
                 self.queue.clear();
                 self.collapsed.clear();
+                self.rename = None;
                 self.status = Some(Status::info("Queue cleared."));
                 Task::none()
             }
@@ -1124,7 +1167,181 @@ impl App {
                 }
                 Task::none()
             }
+            Message::RenameFolder(album_id) => self.open_rename(album_id),
+            Message::RenameSuggested(album_id, result) => {
+                let Some(rename) = self
+                    .rename
+                    .as_mut()
+                    .filter(|r| r.album_id == album_id && r.suggesting)
+                else {
+                    return Task::none();
+                };
+                rename.suggesting = false;
+                match result {
+                    Ok(Some(name)) => rename.name = name,
+                    Ok(None) => {}
+                    Err(e) => {
+                        self.status = Some(Status::error(format!("Could not suggest a name: {e}")))
+                    }
+                }
+                Task::none()
+            }
+            Message::RenameNameChanged(name) => {
+                if let Some(rename) = &mut self.rename {
+                    rename.name = name;
+                    rename.suggesting = false;
+                }
+                Task::none()
+            }
+            Message::ConfirmRename => self.confirm_rename(),
+            Message::CancelRename => {
+                self.rename = None;
+                Task::none()
+            }
+            Message::FolderRenamed(old, Ok(new)) => {
+                rewrite_paths(&mut self.queue, &old, &new);
+                let name = new.file_name().unwrap_or_default().to_string_lossy();
+                self.status = Some(Status::success(format!(
+                    "Renamed the folder to \"{name}\"."
+                )));
+                Task::none()
+            }
+            Message::FolderRenamed(_, Err(e)) => {
+                self.status = Some(Status::error(format!("Could not rename the folder: {e}")));
+                Task::none()
+            }
         }
+    }
+
+    /// Open an album group's Rename folder field on the folder's current name,
+    /// and read the rename template's suggestion from its first track.
+    fn open_rename(&mut self, album_id: String) -> Task<Message> {
+        if !self.renamable(&album_id) {
+            return Task::none();
+        }
+        let (Some(folder), Some(file)) = (
+            self.rename_target(&album_id),
+            self.first_done_file(&album_id),
+        ) else {
+            return Task::none();
+        };
+        self.rename = Some(RenameState {
+            album_id: album_id.clone(),
+            name: folder
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            suggesting: true,
+        });
+        let template = self.config.rename_format.clone();
+        Task::perform(tasks::suggest_folder_name(template, file), move |r| {
+            Message::RenameSuggested(album_id.clone(), r)
+        })
+    }
+
+    /// Rename the open field's folder, unless the name is empty, the album
+    /// can't be renamed now, or another album's files share the folder.
+    fn confirm_rename(&mut self) -> Task<Message> {
+        let Some(rename) = &self.rename else {
+            return Task::none();
+        };
+        if rename::folder_name(&rename.name).is_none() || !self.renamable(&rename.album_id) {
+            return Task::none();
+        }
+        let Some(folder) = self.rename_target(&rename.album_id) else {
+            return Task::none();
+        };
+        if self.shares_folder(&rename.album_id, &folder) {
+            self.status = Some(Status::error(
+                "Could not rename the folder: another album in the queue has files in it.",
+            ));
+            return Task::none();
+        }
+        let files: Vec<PathBuf> = self
+            .done_items(&rename.album_id)
+            .filter_map(|it| it.path.clone())
+            .collect();
+        let name = self.rename.take().map(|r| r.name).unwrap_or_default();
+        self.status = Some(Status::progress("Renaming the folder…"));
+        let download_dir = self.config.download_dir.clone();
+        let old = folder.clone();
+        Task::perform(
+            tasks::rename_folder(download_dir, folder, files, name),
+            move |result| Message::FolderRenamed(old.clone(), result),
+        )
+    }
+
+    /// The folder Rename folder acts on: the album's shared folder, or the one
+    /// above its `Disc N` folder when only one disc of a multi-disc album is done.
+    fn rename_target(&self, album_id: &str) -> Option<PathBuf> {
+        let folder = self.album_folder(album_id)?;
+        let mut done = self.done_items(album_id).peekable();
+        let multi_disc = done.peek().is_some_and(|it| it.job.multi_disc);
+        let one_disc = done.all(|it| it.path.as_deref().and_then(Path::parent) == Some(&folder));
+        if multi_disc && one_disc {
+            return folder.parent().map(Path::to_path_buf);
+        }
+        Some(folder)
+    }
+
+    /// The album's done file that comes first in disc and track order.
+    fn first_done_file(&self, album_id: &str) -> Option<PathBuf> {
+        self.done_items(album_id)
+            .filter(|it| it.path.is_some())
+            .min_by_key(|it| (it.job.track.disc_number(), it.job.track.track_number))
+            .and_then(|it| it.path.clone())
+    }
+
+    /// Whether another album's done files lie inside `folder`, so renaming it
+    /// would move them too.
+    fn shares_folder(&self, album_id: &str, folder: &Path) -> bool {
+        self.queue.iter().any(|it| {
+            it.job.album.id != album_id
+                && matches!(it.status, ItemStatus::Done(_))
+                && it.path.as_deref().is_some_and(|p| p.starts_with(folder))
+        })
+    }
+
+    /// Whether an album's folder can be renamed now: as for
+    /// [`App::tags_editable`], but with no download running anywhere, since
+    /// another album may be writing into the same folder, and no failed track,
+    /// whose retry would land under the old folder name.
+    fn renamable(&self, album_id: &str) -> bool {
+        let items: Vec<&QueueItem> = self
+            .queue
+            .iter()
+            .filter(|it| it.job.album.id == album_id)
+            .collect();
+        self.group_renamable(&items)
+    }
+
+    /// [`App::renamable`] over one album's own tracks, for the Queue view.
+    fn group_renamable(&self, items: &[&QueueItem]) -> bool {
+        !self.downloading
+            && !items
+                .iter()
+                .any(|it| matches!(it.status, ItemStatus::Error(_)))
+            && self.group_editable(items.iter().copied())
+    }
+
+    /// Close the Rename folder field once its album can no longer be renamed,
+    /// so it doesn't linger with a Rename control that does nothing.
+    fn drop_stale_rename(&mut self) {
+        if self
+            .rename
+            .as_ref()
+            .is_some_and(|r| !self.renamable(&r.album_id))
+        {
+            self.rename = None;
+        }
+    }
+
+    fn done_items<'a>(&'a self, album_id: &'a str) -> impl Iterator<Item = &'a QueueItem> + 'a {
+        self.queue
+            .iter()
+            .filter(move |it| it.job.album.id == album_id)
+            .filter(|it| matches!(it.status, ItemStatus::Done(_)))
     }
 
     /// Whether an album's tags can be edited now: it has a done track, and no
@@ -1159,6 +1376,7 @@ impl App {
             .filter_map(|it| Some((it.job.clone(), it.path.clone()?)))
             .collect();
         self.tag_editor = Some(EditorSlot::Loading(album_id.clone()));
+        self.rename = None;
         Task::perform(tasks::read_tags(files), move |read| {
             Message::TagsRead(album_id.clone(), read)
         })
@@ -1241,10 +1459,7 @@ impl App {
     /// The folder an album group's downloaded files share, once any is done.
     fn album_folder(&self, album_id: &str) -> Option<PathBuf> {
         open::shared_folder(
-            self.queue
-                .iter()
-                .filter(|it| it.job.album.id == album_id)
-                .filter(|it| matches!(it.status, ItemStatus::Done(_)))
+            self.done_items(album_id)
                 .filter_map(|it| it.path.as_deref()),
         )
     }
@@ -1307,6 +1522,7 @@ impl App {
             .map(|it| it.track_id)
             .collect();
         self.queue.retain(|it| !doomed.contains(&it.track_id));
+        self.drop_stale_rename();
         let queue = &self.queue;
         self.collapsed
             .retain(|id| queue.iter().any(|it| &it.job.album.id == id));
@@ -1524,6 +1740,7 @@ impl App {
         }
         let config = self.config.clone();
         self.downloading = true;
+        self.drop_stale_rename();
         self.batch = jobs.iter().map(|job| job.track.id).collect();
         self.status = Some(Status::progress(format!(
             "Downloading {} track(s)…",
@@ -2183,6 +2400,152 @@ mod tests {
         let mut app = app();
         app.queue = vec![queued(1, "a", ItemStatus::Queued)];
         assert_eq!(app.album_folder("a"), None);
+    }
+
+    #[test]
+    fn renamed_folder_moves_only_the_paths_inside_it() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/music/Album/Disc 1/01.flac"),
+            done_at(2, "a", "/music/Album/Disc 2/01.flac"),
+            done_at(3, "b", "/music/Album B/01.flac"),
+        ];
+        let _ = app.update(Message::FolderRenamed(
+            PathBuf::from("/music/Album"),
+            Ok(PathBuf::from("/music/Renamed")),
+        ));
+        let paths: Vec<_> = app
+            .queue
+            .iter()
+            .map(|it| it.path.clone().unwrap())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/music/Renamed/Disc 1/01.flac",
+                "/music/Renamed/Disc 2/01.flac",
+                "/music/Album B/01.flac",
+            ]
+            .map(PathBuf::from)
+        );
+        assert_eq!(app.album_folder("a"), Some(PathBuf::from("/music/Renamed")));
+    }
+
+    #[test]
+    fn folder_shared_with_another_album_is_not_renamed() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/music/Shared/01.flac"),
+            done_at(2, "b", "/music/Shared/02.flac"),
+        ];
+        app.rename = Some(RenameState {
+            album_id: "a".into(),
+            name: "New".into(),
+            suggesting: false,
+        });
+        let _ = app.update(Message::ConfirmRename);
+        assert!(app.rename.is_some(), "the field stays open");
+        let status = app.status.unwrap();
+        assert_eq!(status.kind, status::StatusKind::Error);
+        assert!(status.text.contains("another album"));
+    }
+
+    #[test]
+    fn empty_name_is_not_renamed() {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/music/A/01.flac")];
+        app.rename = Some(RenameState {
+            album_id: "a".into(),
+            name: " / ".into(),
+            suggesting: false,
+        });
+        let _ = app.update(Message::ConfirmRename);
+        assert!(app.rename.is_some());
+        assert_eq!(app.status, None);
+    }
+
+    #[test]
+    fn one_done_disc_renames_the_album_folder() {
+        let mut app = app();
+        let mut item = done_at(1, "a", "/music/Album/Disc 1/01.flac");
+        item.job.multi_disc = true;
+        app.queue = vec![item];
+        assert_eq!(app.rename_target("a"), Some(PathBuf::from("/music/Album")));
+    }
+
+    #[test]
+    fn rename_is_not_offered_while_downloading() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/music/A/01.flac"),
+            queued(2, "a", ItemStatus::Downloading),
+        ];
+        let _ = app.update(Message::RenameFolder("a".into()));
+        assert!(app.rename.is_none());
+    }
+
+    #[test]
+    fn typing_drops_a_late_suggestion() {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/music/Old/01.flac")];
+        let _ = app.update(Message::RenameFolder("a".into()));
+        assert_eq!(app.rename.as_ref().map(|r| r.name.as_str()), Some("Old"));
+        let _ = app.update(Message::RenameNameChanged("Mine".into()));
+        let _ = app.update(Message::RenameSuggested(
+            "a".into(),
+            Ok(Some("Suggested".into())),
+        ));
+        assert_eq!(app.rename.as_ref().map(|r| r.name.as_str()), Some("Mine"));
+    }
+
+    #[test]
+    fn empty_suggestion_keeps_the_current_name() {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/music/Old/01.flac")];
+        let _ = app.update(Message::RenameFolder("a".into()));
+        let _ = app.update(Message::RenameSuggested("a".into(), Ok(None)));
+        let rename = app.rename.unwrap();
+        assert_eq!(rename.name, "Old");
+        assert!(!rename.suggesting);
+    }
+
+    #[test]
+    fn rename_is_not_offered_while_another_album_downloads() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/music/A/01.flac"),
+            queued(2, "b", ItemStatus::Downloading),
+        ];
+        app.downloading = true;
+        app.batch = vec![2];
+        assert!(!app.renamable("a"));
+        assert!(app.tags_editable("a"), "tags stay editable");
+    }
+
+    #[test]
+    fn rename_is_not_offered_with_a_failed_track() {
+        let mut app = app();
+        app.queue = vec![
+            done_at(1, "a", "/music/A/01.flac"),
+            queued(2, "a", ItemStatus::Error("boom".into())),
+        ];
+        assert!(!app.renamable("a"));
+        assert!(app.tags_editable("a"), "tags stay editable");
+    }
+
+    #[test]
+    fn removing_the_album_closes_its_rename_field() {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/music/A/01.flac")];
+        let _ = app.update(Message::RenameFolder("a".into()));
+        assert!(app.rename.is_some());
+        let _ = app.update(Message::RemoveGroup("a".into()));
+        assert!(app.rename.is_none());
+
+        app.queue = vec![done_at(1, "a", "/music/A/01.flac")];
+        let _ = app.update(Message::RenameFolder("a".into()));
+        let _ = app.update(Message::ClearQueue);
+        assert!(app.rename.is_none());
     }
 
     #[test]

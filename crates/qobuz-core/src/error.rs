@@ -52,6 +52,11 @@ pub enum Error {
     #[error("configuration error: {0}")]
     Config(String),
 
+    /// A folder rename was refused before anything changed. Only the reason,
+    /// so the caller words it alongside the I/O errors a rename can also give.
+    #[error("{0}")]
+    Rename(String),
+
     /// The batch was cancelled by the caller. Deliberately *not* transient —
     /// retrying a cancellation would defeat the point.
     #[error("download cancelled")]
