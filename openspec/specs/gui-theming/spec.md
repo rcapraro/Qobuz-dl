@@ -69,7 +69,7 @@ The application SHALL size interactive controls of the same role consistently. A
 
 #### Scenario: Row actions use the compact variant
 
-- **WHEN** a list row offers an action, such as retrying or removing a queued track
+- **WHEN** a list row or a queue group header offers an action, such as adding a search result or removing an album group
 - **THEN** that action is rendered with the compact variant, and all compact actions share the same height and padding
 
 #### Scenario: Theme toggle uses the compact variant

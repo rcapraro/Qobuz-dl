@@ -134,8 +134,11 @@ asynchronously without blocking the results list.
 
 ### Requirement: Download queue screen
 The system SHALL display a download queue with per-item status
-(queued/downloading/tagging/done/error) shown as a colored badge, per-item
-progress bars, and overall progress. Overall progress SHALL express how far
+(Queued, Downloading with its percentage, Tagging, Done, Failed with its reason)
+shown as a colored badge in Title Case, a per-item progress bar only while
+that item is downloading or tagging, and overall progress. Queue rows SHALL
+offer no controls; every action on tracks is offered by a group header or the
+queue header. Overall progress SHALL express how far
 the whole queue has advanced: every item in the queue counts toward it,
 whether or not that item has started downloading. An item that has not started
 counts as no progress; an item that is downloading counts by its own progress;
@@ -155,12 +158,10 @@ the queued state, discarding its recorded progress, and SHALL leave completed
 and failed items as they are. Once a cancelled batch has stopped, the controls
 that require an idle queue SHALL become available again, so the queue can then
 be cleared or started afresh. When an item has failed, the system SHALL offer
-a way to relaunch that item's download without re-adding it, both as a
-per-item control and as a single action that retries all failed items;
-relaunching failed items is the responsibility of those controls and not of
-the start control. When an item is still queued, the system SHALL offer a
-per-item control to remove it from the queue. When the queue is non-empty, the
-system SHALL offer a header control to clear the entire queue. Retry, remove,
+a single header action that retries all failed items without re-adding them;
+relaunching failed items is the responsibility of that control and not of
+the start control. When the queue is non-empty, the
+system SHALL offer a header control to clear the entire queue. Retry
 and clear controls SHALL be available only when a download batch is not
 currently in progress. When the queue is empty, the system SHALL present a
 message saying so and how to add tracks, in place of the progress counter and
@@ -168,7 +169,7 @@ the overall progress bar.
 
 #### Scenario: Live progress display
 - **WHEN** downloads are in progress
-- **THEN** each item shows its current status badge and progress and the overall progress updates without freezing the UI
+- **THEN** each item shows its current status badge, each downloading item also shows its own progress bar, and the overall progress updates without freezing the UI
 
 #### Scenario: Pending items hold overall progress back
 - **WHEN** some items have finished but others are still queued and have never started downloading
@@ -184,11 +185,11 @@ the overall progress bar.
 
 #### Scenario: Overall progress completes despite failures
 - **WHEN** every item in the queue has reached a terminal state and at least one of them failed
-- **THEN** overall progress shows the batch as complete, while the failed items keep their error badges and are counted by the "Retry failed (N)" control
+- **THEN** overall progress shows the batch as complete, while the failed items keep their Failed badges and are counted by the "Retry failed (N)" control
 
 #### Scenario: A failed item's own bar stays empty
 - **WHEN** an item is in the error state
-- **THEN** that item's own progress bar shows no progress, even though the item counts as settled for overall progress
+- **THEN** its row shows no progress bar of its own, even though the item counts as settled for overall progress
 
 #### Scenario: Start offered for never-attempted items
 - **WHEN** the queue holds at least one item that has never been attempted and no batch is running
@@ -236,11 +237,11 @@ the overall progress bar.
 
 #### Scenario: Error visibility
 - **WHEN** an item fails to download
-- **THEN** its row shows an error status badge with a message explaining the failure
+- **THEN** its row shows a Failed status badge with a message explaining the failure
 
 #### Scenario: Relaunch a single failed track
-- **WHEN** an item is in the error state and no batch is currently downloading
-- **THEN** its row exposes a Retry control that, when activated, resets the item to queued and re-downloads only that track
+- **WHEN** exactly one item is in the error state and no batch is currently downloading
+- **THEN** the queue header offers "Retry failed (1)", which resets that item to queued and re-downloads only that track
 
 #### Scenario: Retry all failed tracks
 - **WHEN** one or more items are in the error state and no batch is currently downloading
@@ -248,7 +249,7 @@ the overall progress bar.
 
 #### Scenario: Remove a queued track
 - **WHEN** an item is in the queued state and no batch is currently downloading
-- **THEN** its row exposes a Remove control that, when activated, removes that item from the queue while leaving other items untouched
+- **THEN** its row offers no remove control, and its group header's remove control takes it out of the queue together with the group's other settled tracks
 
 #### Scenario: Clear the entire queue
 - **WHEN** the queue is non-empty and no batch is currently downloading
@@ -256,11 +257,19 @@ the overall progress bar.
 
 #### Scenario: Remove disabled during download
 - **WHEN** a download batch is in progress
-- **THEN** the per-item Remove controls and the "Clear queue" control are disabled
+- **THEN** the "Clear queue" control is unavailable, and group remove controls take out none of that batch's tracks
 
 #### Scenario: Retry disabled during download
 - **WHEN** a download batch is in progress
-- **THEN** the per-item Retry controls and the "Retry failed" control are disabled
+- **THEN** the "Retry failed" control is unavailable
+
+#### Scenario: Rows carry no controls
+- **WHEN** the queue shows rows in any state
+- **THEN** no row offers a retry, remove, show-in-folder or other button
+
+#### Scenario: Progress bar only while a track is in progress
+- **WHEN** a row is queued, done or failed
+- **THEN** it shows no progress bar, while keeping the same height as a row that has one so the list does not shift, and a downloading or tagging row shows one
 
 ### Requirement: Auto-detect credentials control
 The Settings screen SHALL provide a control that triggers automatic discovery
@@ -526,37 +535,6 @@ state or the overall progress.
 - **WHEN** a collapsed group's tracks are downloading
 - **THEN** its header count and progress bar keep updating
 
-### Requirement: Remove settled tracks
-Every queue row that is queued, done, or failed SHALL offer a control that
-removes the track from the queue list without deleting any file from disk.
-Rows that are downloading or tagging SHALL NOT offer it, and the control
-SHALL be disabled on rows that belong to the running batch. Rows added after
-that batch started stay removable, since the batch will never start them.
-
-#### Scenario: Remove a done track
-- **WHEN** no batch is running and the user activates Remove on a done row
-- **THEN** that row leaves the queue and its downloaded file stays on disk
-
-#### Scenario: Remove a failed track
-- **WHEN** no batch is running and the user activates Remove on a failed row
-- **THEN** that row leaves the queue and the "Retry failed (N)" count drops by one
-
-#### Scenario: Disabled during a batch
-- **WHEN** a download batch is running
-- **THEN** the remove control on that batch's queued, done, and failed rows is disabled
-
-#### Scenario: Track added during a batch
-- **WHEN** a download batch is running and the user activates Remove on a row added after it started
-- **THEN** that row leaves the queue
-
-#### Scenario: Removed album forgets its collapsed state
-- **WHEN** the user collapses a group, removes all its tracks, and later adds that album again
-- **THEN** the new group is shown expanded
-
-#### Scenario: Not offered on tracks in progress
-- **WHEN** a row is downloading or tagging
-- **THEN** it offers no remove control
-
 ### Requirement: Remove a group's settled tracks
 A group header SHALL offer a control that removes all of that group's queued,
 done, and failed tracks that are not part of the running batch from the queue
@@ -579,6 +557,10 @@ such track.
 - **WHEN** a download batch is running and every settled track of a group belongs to it
 - **THEN** that group does not offer the remove control
 
+#### Scenario: Removed album forgets its collapsed state
+- **WHEN** the user collapses a group, removes it, and later adds that album again
+- **THEN** the new group is shown expanded
+
 ### Requirement: Open an album's folder
 A queue group with at least one done track SHALL offer a control that opens
 the folder holding that album's downloaded files in the system file manager.
@@ -596,19 +578,6 @@ they share.
 #### Scenario: Folder gone
 - **WHEN** the user activates Open folder after the folder was moved or deleted
 - **THEN** the status line reports that the folder no longer exists, and nothing else changes
-
-### Requirement: Show a track's file
-Each done row SHALL offer a control that opens the file's folder in the
-system file manager with the file selected, or the folder alone where the
-platform has no standard way to select a file.
-
-#### Scenario: Reveal a downloaded track
-- **WHEN** the user activates Show in folder on a done row
-- **THEN** the file manager opens on that track's folder, with the file selected where the platform supports it
-
-#### Scenario: File gone
-- **WHEN** the user activates Show in folder after the file was moved or deleted
-- **THEN** the status line reports that the file no longer exists
 
 ### Requirement: Open the download folder from Settings
 The Settings screen SHALL offer, next to the download directory, a control
@@ -693,3 +662,18 @@ The Options card SHALL lay out its controls on one line: Quality on the label co
 #### Scenario: Options on one line
 - **WHEN** the user views the Options card at the default window size
 - **THEN** Quality, Concurrency and both checkboxes share one line, with Quality starting on the label column
+
+### Requirement: Delivered quality per album group
+A queue group header SHALL show the delivered quality shared by most of its done tracks, once at least one track is done. A done row SHALL show its own delivered quality only when it differs from its group's, so a track the service delivered at another tier stays visible on its row while its group is expanded.
+
+#### Scenario: Album delivered at one quality
+- **WHEN** every done track of a group was delivered as FLAC 24/96
+- **THEN** the group header shows FLAC 24/96 once and no row shows a quality
+
+#### Scenario: One track downgraded
+- **WHEN** a group's done tracks were delivered as FLAC 24/96 except one delivered as FLAC 16/44.1
+- **THEN** the header shows FLAC 24/96 and only the downgraded track's row shows FLAC 16/44.1
+
+#### Scenario: Nothing done yet
+- **WHEN** none of a group's tracks is done
+- **THEN** the group header shows no quality
