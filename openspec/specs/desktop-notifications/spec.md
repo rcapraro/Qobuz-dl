@@ -31,7 +31,7 @@ cancelled batch, nor while the app window has focus.
 - **THEN** no desktop notification is posted, and the status line reports the outcome as before
 
 ### Requirement: Notification setting
-The settings SHALL offer a "Notify when downloads finish" option, on by
+The settings SHALL offer a "Notify when done" option, on by
 default and persisted with the other settings. When it is off, the system
 SHALL NOT post download notifications.
 

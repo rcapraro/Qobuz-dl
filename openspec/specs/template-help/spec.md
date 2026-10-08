@@ -5,7 +5,7 @@ TBD - created by archiving change template-help-and-examples. Update Purpose aft
 ## Requirements
 ### Requirement: Template syntax help
 
-The Settings screen SHALL provide in-app help for the path-template syntax that documents the supported placeholders, the zero-padding modifier, and the key rendering rules, using only placeholders that the download engine actually populates. When shown, the help content SHALL be presented inside a card container so it reads as a distinct, self-contained panel.
+The Settings screen SHALL provide in-app help for the path-template syntax that documents the supported placeholders, the zero-padding modifier, and the key rendering rules, using only placeholders that the download engine actually populates. When shown, the help content SHALL be presented inside the same help panel as the other Settings help, a bordered container set apart from the settings fields, so it reads as a distinct, self-contained panel.
 
 #### Scenario: Placeholders are documented
 
@@ -20,7 +20,7 @@ The Settings screen SHALL provide in-app help for the path-template syntax that 
 #### Scenario: Help shown in a card
 
 - **WHEN** the template help is visible
-- **THEN** its content is rendered within a card container distinct from the surrounding settings fields
+- **THEN** its content is rendered within the Settings help panel, a bordered container distinct from the surrounding settings fields, titled "Template help"
 
 ### Requirement: Toggleable help visibility
 

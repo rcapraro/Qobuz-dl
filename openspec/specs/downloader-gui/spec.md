@@ -9,7 +9,8 @@ TBD - created by archiving change add-qobuz-downloader. Update Purpose after arc
 
 The system SHALL present the Search/Add, Queue, and Settings sections as a tab
 bar, in that order, with exactly one section visible at a time and the active
-tab visually indicated. The application SHALL open on the Search/Add section.
+tab visually indicated. The Search/Add section's tab SHALL be labelled
+"Search". The application SHALL open on the Search/Add section.
 While the queue holds tracks still to process (queued, downloading, or
 tagging), the Queue tab label SHALL show their count; otherwise it SHALL show
 no count. Global controls (theme toggle and sign-in indicator) SHALL remain
@@ -30,6 +31,11 @@ visible independent of the selected tab.
 - **WHEN** the tab bar is displayed
 - **THEN** the tabs appear in the order Search/Add, Queue, Settings
 
+#### Scenario: Search tab label
+
+- **WHEN** the tab bar is displayed
+- **THEN** the Search/Add section's tab reads "Search"
+
 #### Scenario: Launch on Search
 
 - **WHEN** the application starts
@@ -49,7 +55,8 @@ visible independent of the selected tab.
 The system SHALL provide a settings screen exposing Qobuz sign-in via a
 `user_auth_token`, `app_id`/`app_secret`, download-directory picker, quality
 selector, cover-art toggle, folder/track template fields with a live preview, and
-a bounded numeric concurrency control that accepts only values in the range 1–16.
+a bounded numeric concurrency control that accepts only values in the range 1–10.
+A persisted concurrency above 10 SHALL be treated as 10.
 The account section SHALL NOT offer email/password login (unsupported by Qobuz for
 partner/bundled accounts) and SHALL explain how to obtain the token from the Qobuz
 web player.
@@ -68,7 +75,11 @@ web player.
 
 #### Scenario: Concurrency is bounded
 - **WHEN** the user adjusts the concurrency control
-- **THEN** the value is constrained to the range 1–16 and cannot be set to a non-numeric or out-of-range value
+- **THEN** the value is constrained to the range 1–10 and cannot be set to a non-numeric or out-of-range value
+
+#### Scenario: Saved concurrency above the range
+- **WHEN** the app starts with a persisted concurrency above 10
+- **THEN** the concurrency control shows 10, downloads run at most 10 tracks at once, and no unsaved-changes hint is shown
 
 ### Requirement: Search and add screen
 The system SHALL provide a screen with a single input field that both searches
@@ -643,7 +654,7 @@ The Settings screen SHALL show an "Unsaved changes" hint next to the Save settin
 - **THEN** the hint is shown and Save settings is enabled, so the defaults can replace the unreadable file
 
 ### Requirement: Labeled settings fields
-Every text input on the Settings screen SHALL have a visible label that remains shown when the field holds a value. The labels SHALL share one fixed-width label column with the File organization fields, so all inputs on the screen start at the same horizontal position.
+Every text input on the Settings screen SHALL have a visible label that remains shown when the field holds a value. Each row's first input SHALL start on one fixed-width label column shared with the File organization fields. A second input on the same row, such as `app_secret` after `app_id`, SHALL carry its own inline label.
 
 #### Scenario: Filled credentials keep their labels
 - **WHEN** the `app_id` and `app_secret` fields contain values
@@ -655,22 +666,30 @@ Every text input on the Settings screen SHALL have a visible label that remains 
 
 #### Scenario: Inputs align across cards
 - **WHEN** the user views the Settings screen
-- **THEN** the credential, token, folder and track inputs all start at the same horizontal position
+- **THEN** the `app_id`, token, folder and track inputs all start at the same horizontal position
+
+#### Scenario: Credentials share a row
+- **WHEN** the user views the API credentials card
+- **THEN** `app_id` and `app_secret` are on one row, `app_id` on the label column and `app_secret` after its inline label
 
 ### Requirement: One primary action per settings card
-Each Settings card SHALL present at most one control in the primary button style, and that control SHALL be the card's main action. Other controls in the card SHALL use the secondary style. Helper text accompanying a button row SHALL describe every button in that row.
+Each Settings card SHALL present at most one control in the primary button style, and that control SHALL be the card's main action. Other controls in the card SHALL use the secondary style. When a card explains its buttons, the explanation SHALL be in the card's help panel and SHALL describe every button in that card.
 
 #### Scenario: Credentials card emphasis
 - **WHEN** the user views the API credentials card
-- **THEN** Auto-detect is the only primary button, Check signing is secondary, and the helper text explains both
+- **THEN** Auto-detect is the only primary button, Check signing is secondary, and no explanatory text sits under the buttons
+
+#### Scenario: Credentials help explains both buttons
+- **WHEN** the user opens the API credentials help panel
+- **THEN** it explains what Auto-detect and Check signing each do
 
 #### Scenario: Account card emphasis
 - **WHEN** the user views the Account card
 - **THEN** Sign in is the only primary button and Sign out is secondary
 
-### Requirement: Options card layout
-The Options card SHALL lay out its controls on two lines: Quality and Concurrency on the first, the Embed cover art and Notify checkboxes on the second.
+### Requirement: Single-line Options card
+The Options card SHALL lay out its controls on one line: Quality on the label column, then Concurrency, then the Embed cover art and Notify checkboxes.
 
-#### Scenario: Options on two lines
-- **WHEN** the user views the Options card
-- **THEN** Quality and Concurrency share the first line and both checkboxes share the second
+#### Scenario: Options on one line
+- **WHEN** the user views the Options card at the default window size
+- **THEN** Quality, Concurrency and both checkboxes share one line, with Quality starting on the label column
