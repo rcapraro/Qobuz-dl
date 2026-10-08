@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change template-help-and-examples. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Template syntax help
 
 The Settings screen SHALL provide in-app help for the path-template syntax that documents the supported placeholders, the zero-padding modifier, and the key rendering rules, using only placeholders that the download engine actually populates. When shown, the help content SHALL be presented inside the same help panel as the other Settings help, a bordered container set apart from the settings fields, so it reads as a distinct, self-contained panel.
@@ -21,6 +23,11 @@ The Settings screen SHALL provide in-app help for the path-template syntax that 
 
 - **WHEN** the template help is visible
 - **THEN** its content is rendered within the Settings help panel, a bordered container distinct from the surrounding settings fields, titled "Template help"
+
+#### Scenario: Rename template explained
+
+- **WHEN** the user reads the template help
+- **THEN** it explains that the rename template only suggests a name for Rename folder in the queue, that its values come from the album's current file tags, and that it yields a single folder name, so a `/` does not create subfolders
 
 ### Requirement: Toggleable help visibility
 
@@ -67,4 +74,3 @@ Each example template SHALL provide a control that sets it as the current folder
 
 - **WHEN** the user activates the apply control for a track example
 - **THEN** the track format input is set to that example's string and the path preview updates to reflect it
-

@@ -18,7 +18,7 @@ The system SHALL rename a downloaded album's folder, the nearest folder holding 
 - **THEN** `Album` is renamed and both disc subfolders move with it
 
 ### Requirement: Folder rename safety
-The system SHALL refuse a rename, change nothing, and say why when: a different file or folder already exists at the target; the folder is the download directory or lies outside it; or the folder holds done files of another album in the queue. Renaming that only changes letter case SHALL be allowed.
+The system SHALL refuse a rename, change nothing, and say why when: a different file or folder already exists at the target; the folder is the download directory or lies outside it; the folder holds done files of another album in the queue; or the folder holds a subfolder with none of the album's done files, as an artist folder made by a `{albumartist}` folder template does. Loose files in the folder move with it. Renaming that only changes letter case SHALL be allowed.
 
 #### Scenario: Target exists
 - **WHEN** a folder with the confirmed name already exists in the same parent
@@ -31,6 +31,10 @@ The system SHALL refuse a rename, change nothing, and say why when: a different 
 #### Scenario: Folder shared with another album
 - **WHEN** another queued album has done files in the same folder
 - **THEN** renaming is refused, since it would move that album's files too
+
+#### Scenario: Folder holds other albums
+- **WHEN** the folder template is `{albumartist}`, so the album's files sit in `Qobuz/Miles Davis`, which also holds a `Bitches Brew` folder from an earlier download
+- **THEN** renaming is refused, naming `Bitches Brew`, and nothing moves
 
 #### Scenario: Case-only rename
 - **WHEN** the user renames `kind of blue` to `Kind of Blue` on a case-insensitive filesystem

@@ -23,7 +23,7 @@ See proposal.md for motivation and the specs for requirements. This change assum
 ## Decisions
 
 ### Suggestion rendered from the files, not the `Job`
-`rename::suggest(config, first_done_path) -> Result<String>`:
+`rename::suggest(template, first_done_path) -> Result<Option<String>>` (`None` when the template renders nothing, so the field keeps the current name rather than offering `_`):
 1. reads `TagFields` for the album's first done track in disc and track order, plus the file's audio properties (lofty `FileProperties`: bit depth, sample rate);
 2. builds a `TemplateContext` with the same keys the engine sets;
 3. renders `rename_format` with `render_segment`, so a `/` in the template is sanitized rather than nesting.
@@ -32,14 +32,15 @@ Using the files means a name edited in the tag editor is what gets suggested. Th
 
 *Alternative:* render from `Job`. Rejected: it would ignore tag edits, the main reason to rename.
 
-### `rename::rename_folder(download_dir, folder, new_name) -> Result<PathBuf>`
+### `rename::rename_folder(download_dir, folder, album_files, new_name) -> Result<PathBuf>`
 The function works through these steps:
 1. **Clean the name:** `sanitize_segment(new_name)`. Reject a name that comes out as `_`, which `sanitize_segment` returns when nothing is left.
 2. **Check the folder:** it must be strictly inside `download_dir`. Both paths are canonicalized first, so symlinks and `..` can't escape it.
-3. **Check the target:** target = `folder.parent()/name`.
-   - If the target exists and is not the same directory entry (compared by canonical path, which on a case-insensitive filesystem resolves a case-only rename to the folder itself), the rename is refused as "name taken".
+3. **Check its subfolders:** every subfolder must hold one of `album_files`. With a `{albumartist}` folder template the album's folder is the artist's, and it may hold albums from earlier sessions that the queue doesn't know about. Loose files (scans, logs) move with the folder.
+4. **Check the target:** target = `folder.parent()/name`.
+   - If the target exists and is not the same directory entry (compared by inode on Unix, since macOS canonicalizes a path in the case given; by canonical path on Windows), the rename is refused as "name taken".
    - If it is the same directory entry and the name is identical, nothing happens and the result is success.
-4. **Rename:** `std::fs::rename(folder, target)`, which is atomic within one parent directory.
+5. **Rename:** `std::fs::rename(folder, target)`, which is atomic within one parent directory.
 
 On macOS (APFS, case-insensitive), a case-only rename through `rename` changes the case directly. Windows also accepts it. A test covers it on the CI platforms.
 
@@ -54,7 +55,7 @@ On success, every `QueueItem.path` that `starts_with(old)` is rebuilt as `new.jo
 - Rename (primary)
 - Cancel
 
-Enter confirms. The gating matches Edit tags, through one shared predicate on the group: done tracks exist and none is active or in the running batch. Results go to the typed status line.
+Enter confirms. The gate, `App::group_renamable`, is Edit tags' `App::group_editable` plus two conditions: no download is running at all, because another album in the queue may be writing `.part` files into the same folder before any of its paths is known; and none of the album's tracks failed, because Retry failed rebuilds the destination from the folder template, under the old name. The field closes (`drop_stale_rename`) when the queue is cleared, the album removed, or a download starts. Results go to the typed status line.
 
 ### Config and Settings
 `Config::rename_format` defaults to `{albumartist} - {album} ({year})` via `#[serde(default)]`. The File organization card adds a Rename row under Track, on the label column, with its own one-line preview rendered from the same sample context as the existing preview. It's covered by the unsaved-changes hint like the other templates.

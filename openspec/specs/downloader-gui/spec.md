@@ -55,7 +55,8 @@ visible independent of the selected tab.
 The system SHALL provide a settings screen exposing Qobuz sign-in via a
 `user_auth_token`, `app_id`/`app_secret`, download-directory picker, quality
 selector, Cover art selector (Off, 400 px, 500 px, 600 px),
-folder/track template fields with a live preview, and
+folder/track template fields with a live preview, a rename template field with
+a live preview, and
 a bounded numeric concurrency control that accepts only values in the range 1–10.
 A persisted concurrency above 10 SHALL be treated as 10.
 The account section SHALL NOT offer email/password login (unsupported by Qobuz for
@@ -85,6 +86,10 @@ web player.
 #### Scenario: Choose a cover size
 - **WHEN** the user picks 400 px in the Cover art selector and saves
 - **THEN** later downloads embed covers scaled down to 400 px
+
+#### Scenario: Rename template field
+- **WHEN** the user views the File organization card
+- **THEN** a labeled Rename field for the rename template is shown below the folder and track templates, on the same label column
 
 ### Requirement: Search and add screen
 The system SHALL provide a screen with a single input field that both searches
@@ -769,3 +774,38 @@ A queue group SHALL offer an Edit tags control when it has at least one done tra
 #### Scenario: Editor replaces the list
 - **WHEN** the user activates Edit tags on a group
 - **THEN** the Queue tab shows that album's tag editor instead of the queue list, until the editor is closed
+
+### Requirement: Rename an album's folder from the queue
+A queue group SHALL offer a Rename folder control when it offers Edit tags, no download is running, and none of its tracks failed. The name field SHALL close when its album can no longer be renamed. Activating it SHALL show, in the group header, a name field prefilled with the rename template's suggestion and controls to confirm or cancel. Confirming SHALL rename the folder; the status line SHALL report success or the reason it was refused.
+
+#### Scenario: Suggested name shown
+- **WHEN** the user activates Rename folder on a finished album
+- **THEN** a field prefilled with the suggested name appears in its header, with Rename and Cancel controls
+
+#### Scenario: Free name
+- **WHEN** the user replaces the suggestion with their own name and confirms
+- **THEN** the folder gets that name, sanitized
+
+#### Scenario: Cancel
+- **WHEN** the user cancels
+- **THEN** the field closes and nothing is renamed
+
+#### Scenario: Not offered while downloading
+- **WHEN** any track of a group is queued, downloading or tagging, or any download is running
+- **THEN** its header does not offer Rename folder
+
+#### Scenario: Not offered with a failed track
+- **WHEN** one of a group's tracks failed
+- **THEN** its header does not offer Rename folder, while Edit tags stays available
+
+#### Scenario: Field closes with its album
+- **WHEN** the name field is open and the album is removed from the queue or a download starts
+- **THEN** the field closes and nothing is renamed
+
+#### Scenario: Template renders nothing
+- **WHEN** the rename template renders to nothing for the album
+- **THEN** the field keeps the folder's current name
+
+#### Scenario: Empty name
+- **WHEN** the name field is empty or sanitizes to nothing
+- **THEN** the Rename control is unavailable

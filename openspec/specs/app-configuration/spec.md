@@ -2,12 +2,14 @@
 
 ## Purpose
 TBD - created by archiving change add-qobuz-downloader. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Persist settings
 The system SHALL persist user settings — download directory, quality tier,
-folder template, track template, cover art setting (Off or a size), download
-concurrency, `app_id`, and `app_secret` — to the platform configuration
-directory, and SHALL reload them on startup.
+folder template, track template, rename template, cover art setting (Off or a
+size), download concurrency, `app_id`, and `app_secret` — to the platform
+configuration directory, and SHALL reload them on startup.
 
 #### Scenario: Settings survive restart
 - **WHEN** the user changes settings and restarts the app
@@ -21,6 +23,10 @@ directory, and SHALL reload them on startup.
 - **WHEN** the app starts with a configuration saved before the cover art size existed
 - **THEN** cover art is Off if embedding was disabled there, and 600 px otherwise
 
+#### Scenario: Rename template from an older configuration
+- **WHEN** the app starts with a configuration saved before the rename template existed
+- **THEN** the rename template is `{albumartist} - {album} ({year})`
+
 ### Requirement: Secrets excluded from config file
 The system SHALL NOT store the `user_auth_token` or password in the plaintext
 configuration file; the token is delegated to the keyring.
@@ -31,9 +37,13 @@ configuration file; the token is delegated to the keyring.
 
 ### Requirement: Live template preview
 The system SHALL show a preview of the rendered path for the current folder and
-track templates as the user edits them.
+track templates, and of the folder name for the current rename template, as the
+user edits them.
 
 #### Scenario: Preview updates
 - **WHEN** the user edits the folder or track template in settings
 - **THEN** the system displays an example rendered path reflecting the current templates
 
+#### Scenario: Rename preview updates
+- **WHEN** the user edits the rename template
+- **THEN** the system displays an example folder name reflecting it
