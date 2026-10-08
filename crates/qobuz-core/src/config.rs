@@ -13,7 +13,7 @@ pub const DEFAULT_FOLDER_FORMAT: &str =
     "{albumartist} - {album} ({year}) [{container}] [{bit_depth}B-{sampling_rate}kHz]";
 pub const DEFAULT_TRACK_FORMAT: &str = "{tracknumber:02}. {artist} - {title}";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Base directory downloads are written under.

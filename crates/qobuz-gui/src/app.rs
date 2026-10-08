@@ -198,6 +198,10 @@ struct StoredToken {
 pub struct App {
     screen: Screen,
     config: Config,
+    /// What is on disk, so unsaved edits are derived by comparison rather than
+    /// tracked per message. `None` when the file could not be read: the shown
+    /// defaults are not on disk, so Save must stay available to replace it.
+    saved_config: Option<Config>,
     /// `None` once the user dismisses an error.
     status: Option<Status>,
     token: Option<StoredToken>,
@@ -347,6 +351,7 @@ impl App {
             value,
             origin: TokenOrigin::Restored,
         });
+        let load_failed = config_error.is_some();
         // Missing setup is shown by the Search screen's prompt, not here.
         let status = if let Some(e) = config_error {
             Some(Status::error(format!(
@@ -357,7 +362,11 @@ impl App {
                 .is_some()
                 .then(|| Status::info("Restored saved session."))
         };
-        (Self::from_parts(config, token, status), Task::none())
+        let mut app = Self::from_parts(config, token, status);
+        if load_failed {
+            app.saved_config = None;
+        }
+        (app, Task::none())
     }
 
     /// The initial state for already-loaded settings and token, without
@@ -387,6 +396,7 @@ impl App {
             cancel: None,
             token,
             status,
+            saved_config: Some(config.clone()),
             config,
         }
     }
@@ -396,9 +406,21 @@ impl App {
         self.token.is_some()
     }
 
+    fn settings_dirty(&self) -> bool {
+        self.saved_config.as_ref() != Some(&self.config)
+    }
+
+    /// The only path that writes the config, so every save — explicit or
+    /// implicit — keeps the unsaved-changes snapshot truthful.
+    fn persist_config(&mut self) -> qobuz_core::Result<()> {
+        self.config.save()?;
+        self.saved_config = Some(self.config.clone());
+        Ok(())
+    }
+
     /// Persist the config, surfacing a failure instead of dropping it silently.
     fn save_config(&mut self) {
-        if let Err(e) = self.config.save() {
+        if let Err(e) = self.persist_config() {
             tracing::warn!("could not save config: {e}");
             self.status = Some(Status::error(format!("Could not save settings: {e}")));
         }
@@ -493,7 +515,7 @@ impl App {
                 // Detected as a set — the working candidate may not be the one we
                 // picked as primary; let the signing check adopt it silently.
                 self.secret_manually_edited = false;
-                self.status = Some(match self.config.save() {
+                self.status = Some(match self.persist_config() {
                     Ok(()) => {
                         Status::success("Credentials detected and saved. You can now sign in.")
                     }
@@ -585,7 +607,7 @@ impl App {
             }
             Message::DirChosen(None) => Task::none(),
             Message::SaveSettings => {
-                match self.config.save() {
+                match self.persist_config() {
                     Ok(()) => self.status = Some(Status::success("Settings saved.")),
                     Err(e) => {
                         self.status = Some(Status::error(format!("Could not save settings: {e}")))
@@ -1389,6 +1411,34 @@ mod tests {
         app.status = Some(Status::error("boom"));
         let _ = app.update(Message::DismissStatus);
         assert_eq!(app.status, None);
+    }
+
+    #[test]
+    fn loaded_settings_are_not_dirty() {
+        assert!(!app().settings_dirty());
+    }
+
+    #[test]
+    fn unreadable_config_stays_saveable() {
+        let mut app = app();
+        app.saved_config = None;
+        assert!(app.settings_dirty());
+    }
+
+    #[test]
+    fn editing_a_setting_makes_it_dirty() {
+        let mut app = app();
+        let _ = app.update(Message::QualitySelected(Quality::Mp3));
+        assert!(app.settings_dirty());
+    }
+
+    #[test]
+    fn reverting_an_edit_clears_dirty() {
+        let mut app = app();
+        let original = app.config.track_format.clone();
+        let _ = app.update(Message::TrackFormatChanged("{title}".into()));
+        let _ = app.update(Message::TrackFormatChanged(original));
+        assert!(!app.settings_dirty());
     }
 
     #[test]

@@ -12,28 +12,35 @@ use iced_aw::widget::number_input::NumberInput;
 use qobuz_core::quality::Quality;
 
 pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
-    let creds_fields = row![
-        field_input("app_id", &app.config.app_id)
-            .on_input(Message::AppIdChanged)
-            .width(Length::FillPortion(1)),
-        field_input("app_secret", &app.config.app_secret)
-            .secure(true)
-            .on_input(Message::AppSecretChanged)
-            .width(Length::FillPortion(1)),
-    ]
-    .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center);
     let mut creds_body = column![
-        creds_fields,
-        row![
-            action_button("Auto-detect", Message::AutoDetectCredentials),
-            // Wider label than the fixed button width; size to content so it
-            // isn't clipped to "Check".
-            action_button("Check signing", Message::CheckSigning).width(Length::Shrink),
-            text("Fetch app_id and app_secret from the Qobuz web player.").size(style::TEXT_SM),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center),
+        labeled_row(
+            "App ID:",
+            field_input("app_id", &app.config.app_id).on_input(Message::AppIdChanged),
+        ),
+        labeled_row(
+            "App secret:",
+            field_input("app_secret", &app.config.app_secret)
+                .secure(true)
+                .on_input(Message::AppSecretChanged),
+        ),
+        labeled_row(
+            "",
+            row![
+                action_button("Auto-detect", Message::AutoDetectCredentials),
+                // Wider label than the fixed button width; size to content so it
+                // isn't clipped to "Check".
+                secondary_button("Check signing", Message::CheckSigning).width(Length::Shrink),
+            ]
+            .spacing(style::SPACE_SM),
+        ),
+        labeled_row(
+            "",
+            text(
+                "Auto-detect fetches app_id and app_secret from the Qobuz web player; \
+                 Check signing verifies them (requires sign-in)."
+            )
+            .size(style::TEXT_SM),
+        ),
     ]
     .spacing(style::SPACE_SM);
     if app.show_credentials_help {
@@ -54,18 +61,21 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
     let can_sign_in = !app.token_input.trim().is_empty();
     let mut auth_body = column![
         text(token_status).size(style::TEXT_SM),
-        row![
-            field_input("paste your user_auth_token", &app.token_input)
-                .secure(true)
-                .on_input(Message::TokenChanged)
-                .width(Length::Fill),
-            styled_button("Sign in").on_press_maybe(can_sign_in.then_some(Message::LoginToken)),
-            styled_button("Sign out")
-                .style(button::secondary)
-                .on_press_maybe(app.signed_in().then_some(Message::SignOut)),
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center),
+        labeled_row(
+            "Token:",
+            row![
+                field_input("paste your user_auth_token", &app.token_input)
+                    .secure(true)
+                    .on_input(Message::TokenChanged)
+                    .width(Length::Fill),
+                styled_button("Sign in").on_press_maybe(can_sign_in.then_some(Message::LoginToken)),
+                styled_button("Sign out")
+                    .style(button::secondary)
+                    .on_press_maybe(app.signed_in().then_some(Message::SignOut)),
+            ]
+            .spacing(style::SPACE_SM)
+            .align_y(iced::Alignment::Center),
+        ),
     ]
     .spacing(style::SPACE_SM);
     if app.show_account_help {
@@ -83,25 +93,36 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
         .align_y(iced::Alignment::Center),
     );
 
-    let options_controls = row![
-        text("Quality:"),
-        pick_list(
-            Quality::ALL.to_vec(),
-            Some(app.config.quality),
-            Message::QualitySelected,
+    let mut options_body = column![
+        labeled_row(
+            "Quality:",
+            row![
+                pick_list(
+                    Quality::ALL.to_vec(),
+                    Some(app.config.quality),
+                    Message::QualitySelected,
+                ),
+                iced::widget::horizontal_space(),
+                text("Concurrency:"),
+                NumberInput::new(&app.config.concurrency, 1..=16, Message::ConcurrencyChanged)
+                    .step(1)
+                    .width(Length::Fixed(120.0)),
+            ]
+            .spacing(style::SPACE_MD)
+            .align_y(iced::Alignment::Center),
         ),
-        checkbox("Embed cover art", app.config.embed_art).on_toggle(Message::EmbedArtToggled),
-        checkbox("Notify when downloads finish", app.config.notify_on_finish)
-            .on_toggle(Message::NotifyToggled),
-        iced::widget::horizontal_space(),
-        text("Concurrency:"),
-        NumberInput::new(&app.config.concurrency, 1..=16, Message::ConcurrencyChanged)
-            .step(1)
-            .width(Length::Fixed(120.0)),
+        labeled_row(
+            "",
+            row![
+                checkbox("Embed cover art", app.config.embed_art)
+                    .on_toggle(Message::EmbedArtToggled),
+                checkbox("Notify when downloads finish", app.config.notify_on_finish)
+                    .on_toggle(Message::NotifyToggled),
+            ]
+            .spacing(style::SPACE_LG),
+        ),
     ]
-    .spacing(style::SPACE_MD)
-    .align_y(iced::Alignment::Center);
-    let mut options_body = column![options_controls].spacing(style::SPACE_SM);
+    .spacing(style::SPACE_SM);
     if app.show_options_help {
         options_body = options_body.push(options_help());
     }
@@ -152,12 +173,29 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                 app.show_options_help,
                 Message::ToggleOptionsHelp
             ),
-            action_button("Save settings", Message::SaveSettings),
+            save_row(app.settings_dirty()),
         ]
         .spacing(style::SPACE_LG)
         .padding(gutter_padding()),
     )
     .into()
+}
+
+fn save_row<'a>(dirty: bool) -> Element<'a, Message> {
+    let mut save =
+        row![styled_button("Save settings").on_press_maybe(dirty.then_some(Message::SaveSettings))]
+            .spacing(style::SPACE_MD)
+            .align_y(iced::Alignment::Center);
+    if dirty {
+        save = save.push(
+            text("Unsaved changes")
+                .size(style::TEXT_SM)
+                .style(|theme| text::Style {
+                    color: Some(style::accents(theme).progress()),
+                }),
+        );
+    }
+    save.into()
 }
 
 /// A settings card whose header carries a right-aligned "?" help toggle.
