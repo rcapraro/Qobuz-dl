@@ -58,6 +58,8 @@ pub struct Album {
     #[serde(default)]
     pub label: Option<Label>,
     #[serde(default)]
+    pub copyright: Option<String>,
+    #[serde(default)]
     pub hires: bool,
     #[serde(default)]
     pub hires_streamable: bool,

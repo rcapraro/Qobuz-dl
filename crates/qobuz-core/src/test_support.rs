@@ -35,3 +35,12 @@ pub fn write_minimal_flac(path: &Path) {
     bytes.extend_from_slice(&[0; 0x22]);
     std::fs::write(path, bytes).unwrap();
 }
+
+/// Write two silent MPEG-1 Layer III frames (128 kbps, 44.1 kHz): enough for
+/// lofty to recognize the file as MP3.
+pub fn write_minimal_mp3(path: &Path) {
+    const FRAME_LEN: usize = 417;
+    let mut frame = vec![0xFF, 0xFB, 0x90, 0x00];
+    frame.resize(FRAME_LEN, 0);
+    std::fs::write(path, frame.repeat(2)).unwrap();
+}

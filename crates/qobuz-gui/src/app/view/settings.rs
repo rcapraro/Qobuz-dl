@@ -1,5 +1,6 @@
 //! The Settings screen: credentials, account, file organization, and options.
 
+use super::super::cover_art::CoverArt;
 use super::super::help::{account_help, credentials_help, options_help, template_help};
 use super::super::{App, Message, TokenOrigin};
 use super::{card_el, gutter_padding};
@@ -14,8 +15,9 @@ use qobuz_core::quality::Quality;
 
 /// Fits a 9-digit app id, so the secret beside it gets the rest of the row.
 const APP_ID_WIDTH: f32 = 140.0;
-/// Fits two digits plus the stepper's carets.
-const CONCURRENCY_WIDTH: f32 = 72.0;
+/// Fits the widest value, `MAX_CONCURRENCY` (10), plus the stepper's carets,
+/// which `iced_aw` overlays on the field's right end.
+const CONCURRENCY_WIDTH: f32 = 56.0;
 
 pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
     let mut creds_body = column![
@@ -112,7 +114,12 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
             )
             .step(1)
             .width(Length::Fixed(CONCURRENCY_WIDTH)),
-            checkbox("Embed cover art", app.config.embed_art).on_toggle(Message::EmbedArtToggled),
+            text("Cover art:"),
+            pick_list(
+                CoverArt::all(),
+                Some(CoverArt::of(&app.config)),
+                Message::CoverArtSelected,
+            ),
             checkbox("Notify when done", app.config.notify_on_finish)
                 .on_toggle(Message::NotifyToggled),
         ]

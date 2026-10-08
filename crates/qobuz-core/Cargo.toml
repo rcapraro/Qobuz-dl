@@ -19,6 +19,8 @@ md-5 = "0.10"
 regex = "1"
 base64 = "0.22"
 lofty = "0.24"
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+jpeg-encoder = "0.7"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 directories = "6"
 

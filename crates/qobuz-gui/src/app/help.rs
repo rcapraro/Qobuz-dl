@@ -92,7 +92,7 @@ pub(super) fn options_help() -> Element<'static, Message> {
         help_lines([
             "• Quality: MP3 320 · FLAC 16/44.1 (CD) · FLAC 24/≤96 · FLAC 24/≤192 (Hi-Res). The service may deliver a lower tier than requested; the actual quality is read from the response.".into(),
             format!("• Concurrency: how many tracks download at once (1–{MAX_CONCURRENCY})."),
-            "• Embed cover art: writes the album cover into each downloaded file's tags.".into(),
+            "• Cover art: Off embeds no cover. 600 px is Qobuz's original size: the cover is embedded as delivered. 400 px and 500 px scale it down for smaller files, with a high-quality filter; a cover already that small is never enlarged.".into(),
             "• Notify when done: posts a desktop notification when a batch ends while the app is in the background (not after Cancel).".into(),
         ]),
     ]

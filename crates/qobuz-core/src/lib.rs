@@ -4,6 +4,7 @@
 //! authentication, catalog browsing/search, signed file-URL requests, streamed
 //! downloads with progress, path templating, and audio tagging.
 
+pub mod artwork;
 pub mod auth;
 pub mod bootstrap;
 pub mod catalog;
@@ -22,6 +23,7 @@ pub mod template;
 mod test_support;
 mod util;
 
+pub use artwork::CoverSize;
 pub use bootstrap::{discover_app_credentials, AppCredentials};
 pub use catalog::Reference;
 pub use client::{QobuzClient, SigningCheck};

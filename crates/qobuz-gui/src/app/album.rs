@@ -129,6 +129,7 @@ pub(super) mod tests {
             media_count: None,
             tracks: None,
             label: None,
+            copyright: None,
             hires: false,
             hires_streamable: false,
         }
@@ -155,6 +156,7 @@ pub(super) mod tests {
             },
             album: album("Band"),
             multi_disc: disc > 1,
+            disc_track_total: None,
         }
     }
 

@@ -2,6 +2,7 @@
 
 use crate::style::{self, compact_button};
 use album::{AlbumDetail, DetailState};
+use cover_art::CoverArt;
 use iced::futures::{future, SinkExt};
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Element, Length, Task, Theme};
@@ -18,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 mod album;
+mod cover_art;
 mod help;
 mod notify;
 mod omnibox;
@@ -303,7 +305,7 @@ enum Message {
     TrackFormatChanged(String),
     ConcurrencyChanged(usize),
     QualitySelected(Quality),
-    EmbedArtToggled(bool),
+    CoverArtSelected(CoverArt),
     NotifyToggled(bool),
     PickDir,
     DirChosen(Option<PathBuf>),
@@ -615,8 +617,14 @@ impl App {
                 self.config.quality = q;
                 Task::none()
             }
-            Message::EmbedArtToggled(b) => {
-                self.config.embed_art = b;
+            Message::CoverArtSelected(choice) => {
+                match choice {
+                    CoverArt::Off => self.config.embed_art = false,
+                    CoverArt::Size(size) => {
+                        self.config.embed_art = true;
+                        self.config.cover_size = size;
+                    }
+                }
                 Task::none()
             }
             Message::NotifyToggled(b) => {
@@ -1469,6 +1477,22 @@ mod tests {
         let mut app = app();
         let _ = app.update(Message::QualitySelected(Quality::Mp3));
         assert!(app.settings_dirty());
+    }
+
+    #[test]
+    fn cover_art_off_keeps_the_size() {
+        use qobuz_core::CoverSize;
+
+        let mut app = app();
+        let _ = app.update(Message::CoverArtSelected(CoverArt::Size(CoverSize::Px400)));
+        assert!(app.config.embed_art);
+        assert_eq!(app.config.cover_size, CoverSize::Px400);
+        assert!(app.settings_dirty());
+
+        let _ = app.update(Message::CoverArtSelected(CoverArt::Off));
+        assert!(!app.config.embed_art);
+        assert_eq!(app.config.cover_size, CoverSize::Px400);
+        assert_eq!(CoverArt::of(&app.config), CoverArt::Off);
     }
 
     #[test]

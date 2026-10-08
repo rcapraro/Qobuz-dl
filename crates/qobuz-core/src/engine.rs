@@ -2,6 +2,7 @@
 //! download, tag, and organize each with bounded concurrency and per-item
 //! failure isolation.
 
+use crate::artwork::{self, CoverSize};
 use crate::catalog::Reference;
 use crate::client::QobuzClient;
 use crate::config::Config;
@@ -14,7 +15,7 @@ use crate::template::{self, TemplateContext};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{mpsc, Mutex, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 const MAX_ATTEMPTS: u32 = 4;
@@ -25,6 +26,8 @@ pub struct Job {
     pub track: Track,
     pub album: Album,
     pub multi_disc: bool,
+    /// Number of tracks on this track's disc, when known.
+    pub disc_track_total: Option<u32>,
 }
 
 /// Progress event for a single job, keyed by track id.
@@ -73,6 +76,7 @@ pub async fn resolve(client: &QobuzClient, reference: &Reference) -> Result<Vec<
                 .ok_or_else(|| Error::Config("track is missing album metadata".into()))?;
             Ok(vec![Job {
                 track,
+                disc_track_total: track_total_without_list(&album),
                 album,
                 multi_disc: false,
             }])
@@ -100,6 +104,7 @@ fn jobs_from_playlist(playlist: Playlist) -> Vec<Job> {
         if let Some(album) = track.album.clone() {
             jobs.push(Job {
                 track,
+                disc_track_total: track_total_without_list(&album),
                 album,
                 multi_disc: false,
             });
@@ -111,14 +116,29 @@ fn jobs_from_playlist(playlist: Playlist) -> Vec<Job> {
 fn jobs_from_album(mut album: Album) -> Vec<Job> {
     let multi_disc = album.media_count.unwrap_or(1) > 1;
     let tracks = album.tracks.take().map(|t| t.items).unwrap_or_default();
+    let mut per_disc: HashMap<u32, u32> = HashMap::new();
+    for track in &tracks {
+        *per_disc.entry(track.disc_number()).or_default() += 1;
+    }
     tracks
         .into_iter()
         .map(|track| Job {
+            disc_track_total: per_disc.get(&track.disc_number()).copied(),
             track,
             album: album.clone(),
             multi_disc,
         })
         .collect()
+}
+
+/// A track's disc total when the album's track list isn't at hand. The album's
+/// count is only that disc's total when the album says it has a single disc;
+/// an album that omits its disc count may have several.
+fn track_total_without_list(album: &Album) -> Option<u32> {
+    match album.media_count {
+        Some(1) => album.tracks_count,
+        _ => None,
+    }
 }
 
 /// Download every job with bounded concurrency, emitting [`JobEvent`]s. A single
@@ -142,8 +162,7 @@ pub async fn download_all(
     let client = Arc::new(client);
     let config = Arc::new(config);
     // Cache cover art per album across the batch.
-    let cover_cache: Arc<Mutex<HashMap<String, Option<Vec<u8>>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let cover_cache: Arc<CoverCache> = Arc::new(Mutex::new(HashMap::new()));
 
     // A `JoinSet` rather than detached handles: dropping it aborts its tasks,
     // so a batch can never outlive this future as background work still writing
@@ -191,7 +210,7 @@ async fn run_job(
     config: &Config,
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
-    cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+    cover_cache: &CoverCache,
     cancel: &CancellationToken,
 ) {
     let track_id = job.track.id;
@@ -233,7 +252,7 @@ async fn download_one(
     config: &Config,
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
-    cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+    cover_cache: &CoverCache,
     cancel: &CancellationToken,
 ) -> Result<(PathBuf, String)> {
     let (file, dest, delivered_quality, transfer) =
@@ -257,7 +276,7 @@ async fn finish_download(
     config: &Config,
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
-    cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+    cover_cache: &CoverCache,
     cancel: &CancellationToken,
 ) -> Result<()> {
     let _ = events
@@ -270,7 +289,7 @@ async fn finish_download(
     let cover = if config.embed_art {
         tokio::select! {
             biased;
-            c = fetch_cover(&job.album, cover_cache) => c,
+            c = fetch_cover(&job.album, config.cover_size, cover_cache) => c,
             _ = cancel.cancelled() => return Err(Error::Cancelled),
         }
     } else {
@@ -280,6 +299,7 @@ async fn finish_download(
     let tags = TrackTags {
         track: &job.track,
         album: &job.album,
+        disc_track_total: job.disc_track_total,
         cover: cover.as_deref(),
     };
     tagging::write_tags(part.path(), dest, &tags)?;
@@ -397,22 +417,34 @@ fn build_context(job: &Job, file: &crate::models::FileUrl, ext: &str) -> Templat
     ctx
 }
 
-async fn fetch_cover(
-    album: &Album,
-    cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
-) -> Option<Vec<u8>> {
-    {
-        let guard = cache.lock().await;
-        if let Some(hit) = guard.get(&album.id) {
-            return hit.clone();
-        }
-    }
+/// Each album's cover, fetched and sized once per batch. A cell per album
+/// rather than a plain value, so the album's tracks that start together wait
+/// for one fetch and resize instead of each running their own.
+type CoverCache = Mutex<HashMap<String, Arc<OnceCell<Option<Vec<u8>>>>>>;
+
+async fn fetch_cover(album: &Album, size: CoverSize, cache: &CoverCache) -> Option<Vec<u8>> {
+    let cell = cache
+        .lock()
+        .await
+        .entry(album.id.clone())
+        .or_default()
+        .clone();
+    cell.get_or_init(|| load_cover(album, size)).await.clone()
+}
+
+async fn load_cover(album: &Album, size: CoverSize) -> Option<Vec<u8>> {
     let url = album.image.as_ref().and_then(|i| i.best())?;
     // `fetch_bytes` rejects non-2xx responses — without that check an error
     // page's HTML body would get embedded as "cover art".
-    let bytes = crate::download::fetch_bytes(url).await.ok();
-    cache.lock().await.insert(album.id.clone(), bytes.clone());
-    bytes
+    let bytes = crate::download::fetch_bytes(url).await.ok()?;
+    let source = bytes.clone();
+    match tokio::task::spawn_blocking(move || artwork::prepare_cover(source, size)).await {
+        Ok(cover) => Some(cover),
+        Err(e) => {
+            tracing::warn!("cover embedded at its original size: {e}");
+            Some(bytes)
+        }
+    }
 }
 
 /// Short delivered-quality label: `FLAC 24/96`, `FLAC 16/44.1`, or `MP3 320`.
@@ -451,6 +483,7 @@ mod tests {
             media_count: Some(1),
             tracks: None,
             label: None,
+            copyright: None,
             hires: false,
             hires_streamable: false,
         };
@@ -475,6 +508,7 @@ mod tests {
             track,
             album,
             multi_disc: false,
+            disc_track_total: Some(5),
         }
     }
 
@@ -656,6 +690,56 @@ mod tests {
         };
         let path = build_path(&config, &job, &file, "flac");
         assert_eq!(path, PathBuf::from("/m/Kind of Blue/Disc 2/So What.flac"));
+    }
+
+    fn track_on_disc(id: i64, disc: u32) -> Track {
+        Track {
+            id,
+            media_number: Some(disc),
+            ..sample_job().track
+        }
+    }
+
+    #[test]
+    fn track_total_counts_each_disc() {
+        let album = Album {
+            media_count: Some(2),
+            tracks_count: Some(5),
+            tracks: Some(crate::models::TrackList {
+                items: vec![
+                    track_on_disc(1, 1),
+                    track_on_disc(2, 1),
+                    track_on_disc(3, 1),
+                    track_on_disc(4, 2),
+                    track_on_disc(5, 2),
+                ],
+                total: Some(5),
+                offset: None,
+                limit: None,
+            }),
+            ..sample_job().album
+        };
+        let totals: Vec<_> = jobs_from_album(album)
+            .iter()
+            .map(|j| j.disc_track_total)
+            .collect();
+        assert_eq!(totals, [Some(3), Some(3), Some(3), Some(2), Some(2)]);
+    }
+
+    #[test]
+    fn track_total_without_list_needs_a_single_disc() {
+        let single = sample_job().album;
+        assert_eq!(track_total_without_list(&single), Some(5));
+        let multi = Album {
+            media_count: Some(2),
+            ..single.clone()
+        };
+        assert_eq!(track_total_without_list(&multi), None);
+        let unknown = Album {
+            media_count: None,
+            ..single
+        };
+        assert_eq!(track_total_without_list(&unknown), None);
     }
 
     #[test]

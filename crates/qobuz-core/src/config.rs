@@ -4,6 +4,7 @@
 //! and are never serialized here — the token lives in the OS keyring (see
 //! [`crate::auth`]).
 
+use crate::artwork::CoverSize;
 use crate::error::{Error, Result};
 use crate::quality::Quality;
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,8 @@ pub struct Config {
     pub track_format: String,
     /// Whether to embed cover art into downloaded files.
     pub embed_art: bool,
+    /// Largest embedded cover side; only used while `embed_art` is on.
+    pub cover_size: CoverSize,
     /// Max simultaneous track downloads.
     pub concurrency: usize,
     /// Qobuz web-player API app id (required).
@@ -52,6 +55,7 @@ impl Default for Config {
             folder_format: DEFAULT_FOLDER_FORMAT.to_string(),
             track_format: DEFAULT_TRACK_FORMAT.to_string(),
             embed_art: true,
+            cover_size: CoverSize::default(),
             concurrency: 3,
             app_id: String::new(),
             app_secret: String::new(),
@@ -171,6 +175,15 @@ mod tests {
         let c: Config = serde_json::from_str(r#"{"dark_mode": false}"#).unwrap();
         assert!(!c.dark_mode);
         assert!(c.notify_on_finish);
+    }
+
+    #[test]
+    fn config_saved_before_cover_size_keeps_embedding_choice() {
+        let off = Config::parse(r#"{"embed_art": false}"#).unwrap();
+        assert!(!off.embed_art);
+        let on = Config::parse(r#"{"embed_art": true}"#).unwrap();
+        assert!(on.embed_art);
+        assert_eq!(on.cover_size, CoverSize::Px600);
     }
 
     #[test]
