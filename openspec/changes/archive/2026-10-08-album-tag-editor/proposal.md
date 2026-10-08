@@ -9,8 +9,8 @@ Scope decided on 2026-10-08: only albums in the current session's queue, only th
 ## What Changes
 
 - **Edit tags:** each queue album group with done tracks gets an Edit tags control. It opens an editor in place of the queue list showing those files' current tags, read from disk.
-- **Album fields, edited in batch:** album, album artist, date, genre, label, copyright, total discs, total tracks, compilation and cover are shown once for the album. A field whose value differs between tracks shows as mixed and is left alone unless edited.
-- **Track fields:** title, artist, track number, disc number, composer, ISRC, explicit and comment can be edited per track, or set on every track at once.
+- **Album fields, edited in batch:** album, album artist, date, genre, label, copyright, total discs, compilation and cover are shown once for the album. A field whose value differs between tracks shows as mixed and is left alone unless edited.
+- **Track fields:** title, artist, track number, total tracks (counted per disc, so it can differ between tracks), disc number, composer, ISRC, explicit and comment can be edited per track, or set on every track at once.
 - **Clear a field:** a field can be cleared explicitly. That's separate from leaving it untouched.
 - **Reset to Qobuz:** fills the fields from the Qobuz metadata held in the queue. Nothing is written until saved.
 - **Cover:** replace it with a local image file, or remove it.

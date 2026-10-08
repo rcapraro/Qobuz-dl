@@ -1,9 +1,12 @@
-# Spec Delta
+# tag-editing Specification
 
-## ADDED Requirements
+## Purpose
+View and edit the tags of downloaded files from the queue, both in batch across an album and per track, and save the edits safely so a failed write never leaves a file damaged or half-written.
+
+## Requirements
 
 ### Requirement: Editable tag fields
-The tag editor SHALL edit this fixed list of fields and no others. Album fields: album, album artist, date, genre, label, copyright, total discs, total tracks, compilation, cover. Track fields: title, artist, track number, disc number, composer, ISRC, explicit, comment.
+The tag editor SHALL edit this fixed list of fields and no others. Album fields: album, album artist, date, genre, label, copyright, total discs, compilation, cover. Track fields: title, artist, track number, total tracks, disc number, composer, ISRC, explicit, comment.
 
 #### Scenario: Fields offered
 - **WHEN** the user opens the tag editor for an album
@@ -153,3 +156,14 @@ The editor SHALL offer a control to close it and return to the queue. If there a
 #### Scenario: Reopen after saving
 - **WHEN** the user saves, closes, and opens the editor again
 - **THEN** it shows the saved values read back from the files
+
+### Requirement: Genre suggestions
+The genre field SHALL suggest the standard ID3v1 genres (genres 0–79 as listed in the ID3v2.3 specification, Appendix A, with "Psychadelic" spelled correctly and "AlternRock" written as "Alternative Rock") in alphabetical order, narrowed to those matching what has been typed. It SHALL still accept any genre that is not in the list.
+
+#### Scenario: Suggestions narrow as the user types
+- **WHEN** the user types "Cla" in the genre field
+- **THEN** the suggestions include Classical and Classic Rock, and picking Classical sets the genre to Classical
+
+#### Scenario: Free genre kept
+- **WHEN** the user types "Classique", which is not a standard genre, and saves
+- **THEN** every edited file has the genre Classique

@@ -38,9 +38,28 @@ Converting a file's native tag to lofty's generic `Tag` and back can lose items 
 
 It changes only the edited items on that native tag and saves only that tag, so every other item is left as it was. Each field maps to its native key with the same table as downloads, including the explicit-flag special cases from `cover-resize-and-tag-fields`.
 
-The exact lofty 0.24 calls for reading a concrete file, mutating its tag and saving just that tag must be confirmed from the lofty source first (task 1.1). Combined fields such as ID3's `TRCK` "n/total" go through lofty's native accessors (`set_track`, `set_track_total` and similar), never through hand-built strings.
+Combined fields such as ID3's `TRCK` "n/total" go through lofty's accessors (`set_track`, `set_track_total` and similar), never through hand-built strings.
 
-*Alternative:* the generic `Tag` with a merge (read, overlay, save). Rejected because the round-trip is lossy.
+*Alternative:* converting to the generic `Tag` and back with `From`. Rejected because that round-trip is lossy.
+
+### Verified lofty 0.24 calls (task 1.1)
+Checked in the lofty 0.24.0 and lofty_attr 0.12.0 sources:
+- **Reading:** `FlacFile`, `MpegFile` and `Mp4File` implement `AudioFile::read_from(&mut File, ParseOptions)`. Each native tag gets generated `x()`, `x_mut()`, `set_x(tag)` and `remove_x()` accessors (`vorbis_comments`, `id3v2`, `ilst`).
+- **Lossless editing:** each native tag implements `SplitTag::split_tag(self) -> (Remainder, Tag)`. The remainder keeps everything the generic `Tag` can't represent, and `MergeTag::merge_tag(remainder, tag)` rebuilds the native tag. So `apply_edits` uses split → change the generic `Tag` through `Accessor` and `ItemKey` → merge. One field table then serves downloads and edits, with no hand-built ID3 frames or MP4 atoms.
+- **Explicit flag:** for ID3 and MP4 it is the generic `ParentalAdvisory`. The MP4 merge turns `"1"` into an integer `rtng`. For Vorbis it stays in the remainder, so it is read and written natively with `VorbisComments::get`/`insert`/`remove("ITUNESADVISORY")` after the merge.
+- **Label in ID3:** `TPUB` maps to both `Publisher` and `Label`, and splits as `Publisher`. Reading accepts either key. Setting or clearing the label removes both keys first, so a merge never writes two `TPUB` frames.
+- **Pictures:**
+  - **FLAC:** pictures live on `FlacFile`, not on its `VorbisComments`. When lofty writes a FLAC file, it deletes every existing PICTURE block and writes the tag's pictures plus the file's. So the FLAC cover is edited on the `FlacFile` through `OggPictureStorage` (`remove_picture_type`, `insert_picture` with `PictureInformation::from_picture(..).unwrap_or_default()`), and the whole `FlacFile` is saved.
+  - **ID3:** `APIC` frames split into the generic tag's pictures and merge back unchanged.
+  - **MP4:** `covr` atoms have no picture type; the merge marks them `Other`. Every `covr` picture counts as the cover.
+- **Saving:** `AudioFile::save_to_path(&self, path, WriteOptions)` on the concrete file, written into the `.partN` copy.
+
+### Field model refinement
+- **Fields:** rather than one struct field per tag, `TagFields` maps a `Field` enum (the 17 listed fields) to a normalized string: numbers as digits, dates as `YYYY[-MM[-DD]]`, flags as `"1"` when on and absent when off, plus the cover bytes. Each `Field` knows its kind (text, number, date or flag) for validation. That makes the editor, validation and edits generic over fields.
+- **Flags:** "off" is the absence of the flag, so turning explicit or compilation off is a `Clear`.
+- **Cover edits are album-wide**, as the spec says, so they aren't part of each file's `TagEdits`. A `CoverPlan` built once from the `CoverEdit` (resizing a Replace there) is passed to every `save_file(path, edits, plan)`.
+- **The GUI drives the save loop:** core exposes `save_file` for one file, and the editor sends the next file after each one finishes, rather than calling a `save_files` that saves all files in one blocking call. That keeps one file in flight, as designed, and gives the progress count ("Saving 4 of 20…") without a channel.
+- **Skipping unchanged files:** a field edit whose value already matches the file is dropped. A file left with no change, cover included, is not copied or written.
 
 ### Atomic save: copy, edit the copy, rename over
 For each file with at least one edit:
@@ -65,7 +84,7 @@ The result is one entry per track: either saved or the error text. The GUI repor
 
 Whether a field is touched is derived by comparing its text with the original:
 - **Non-mixed field:** text equal to the original means Keep. Different non-empty text means Set. Emptied text means Clear.
-- **Mixed album field:** shown empty with a "(mixed)" placeholder. Empty means Keep. Clearing it needs the field's explicit Clear (✕) button, so "untouched" and "delete everywhere" can't be confused.
+- **Mixed album field:** shown empty with a "(mixed)" placeholder. Empty means Keep. Clearing it needs the field's explicit Clear (×) button, so "untouched" and "delete everywhere" can't be confused.
 - **Explicit and compilation:** yes/no toggles. A mixed value shows as a third, indeterminate state until changed.
 
 Album fields expand to every track's edits at save time. Each track field in a track's expanded row has an "Apply to all" control, which copies that value into the same field of every track.
