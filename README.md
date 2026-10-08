@@ -16,9 +16,13 @@ quality, cover art, file organization, and tags.
 
 - Authenticate with your Qobuz **`user_auth_token`** (see [Signing in](#signing-in)).
 - Choose download **quality**: MP3 320, FLAC 16/44.1, FLAC 24/≤96, FLAC 24/≤192.
-- **Embed cover art** into downloaded files.
+- **Embed cover art** into downloaded files at 400, 500 or 600 px, or not at all.
 - Configurable **download directory** and **folder/track path templates**.
-- Full audio **tag** writing (FLAC / MP3 / M4A).
+- Full audio **tag** writing (FLAC / MP3 / M4A), from title and track number to
+  release date, label, copyright, ISRC and the explicit flag (see [Tags](#tags)).
+- **Edit the tags** of a downloaded album from the queue: album fields once, each
+  track's own fields, and the cover, saved without touching other tags.
+- **Rename an album's folder** from the queue, with a name suggested from its tags.
 - Find music by **search** — albums and tracks page independently with **Show more** — or by pasting a **Qobuz URL / ID** (album, track, playlist).
 - **Open an album** from search to see its track list and add only the tracks you pick.
 - **Download queue** with per-item progress, bounded concurrency, and retry, and a
@@ -101,7 +105,48 @@ only need to do this once unless you sign out or the token is revoked.
    **Open** button next to the download directory.
 4. **Files land** in your configured download directory, organized by the
    folder/track **path templates** (e.g. `{artist}/{album}` /
-   `{track_number} - {title}`), with tags and cover art embedded.
+   `{tracknumber:02} - {title}`), with tags and cover art embedded.
+5. **Fix up tags and folders** once an album is done: **Edit tags** and
+   **Rename folder** on its queue group (see [Tags](#tags)).
+
+## Tags
+
+**On download**, each file gets: title, artist, album, album artist, track
+number and total, disc number and total, full release date, genre, composer,
+ISRC, label, copyright, the explicit flag (`ITUNESADVISORY` in FLAC, `TXXX` in
+MP3, `rtng` in M4A) and, unless Cover art is Off, the front cover. Tags are
+written into the file before it appears at its destination, and a track already
+on disk is left untouched rather than re-tagged.
+
+**Edit tags** on a finished album group opens an editor in place of the queue
+list, showing what the files hold now:
+
+- **Album fields** (album, album artist, date, genre, label, copyright, disc
+  total, compilation) appear once. Where tracks disagree, the field shows
+  **(mixed)** and is left alone unless you type a value.
+- **Track fields** (title, artist, track number and total, disc number,
+  composer, ISRC, explicit, comment) appear per track, each with **Apply to
+  all**. Track total is per track because each disc of a multi-disc album
+  counts its own tracks.
+- **Genre** suggests the standard ID3v1 genres; dates accept `YYYY`, `YYYY-MM`
+  or `YYYY-MM-DD`.
+- The **cover** can be replaced from a JPEG or PNG file, removed, or resized to
+  400, 500 or 600 px.
+- **Reset to Qobuz** refills the fields from the album's Qobuz metadata.
+
+**Save** writes only the fields that changed. Tags outside the list, such as
+ReplayGain, are kept, and a file with nothing to change isn't rewritten. Each
+file is edited as a copy that then replaces it, one file at a time, so a failure
+leaves that file as it was and keeps your edits for another try.
+
+**Rename folder** renames a finished album's folder in place. The name is
+suggested from the **rename template** in Settings (default
+`{albumartist} - {album} ({year})`), filled from the files' current tags, so a
+title fixed in the editor shows up in it; you can type any other name. The
+rename is refused, with nothing moved, when the name is taken, the folder holds
+another album, or a download is running, and the queue's Open folder and Edit
+tags follow the new name. A renamed folder no longer matches the download folder
+template, so adding the album again downloads it anew.
 
 ## Build from source
 
