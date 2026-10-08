@@ -89,8 +89,9 @@ pub fn secondary_button<'a, M: Clone + 'a>(
     action_button(label, msg).style(button::secondary)
 }
 
-/// A small secondary button for actions inside a list row, sized to its label.
-/// No press handler yet, so callers can disable it with `on_press_maybe`.
+/// A small secondary button for list-row actions and small header or inline
+/// controls, sized to its label. No press handler yet, so callers can disable
+/// it with `on_press_maybe`.
 pub fn compact_button<'a, M>(label: impl text::IntoFragment<'a>) -> Button<'a, M> {
     button(text(label).size(TEXT_SM).center())
         .padding([SPACE_XS, SPACE_SM])
@@ -179,8 +180,6 @@ pub fn theme(dark: bool) -> Theme {
 /// The subset of a Catppuccin flavor we paint with.
 #[derive(Clone, Copy)]
 pub struct Accents {
-    pub base: Color,
-    pub mantle: Color,
     pub surface0: Color,
     pub surface1: Color,
     pub surface2: Color,
@@ -253,8 +252,6 @@ const fn rgb(hex: u32) -> Color {
 }
 
 const MACCHIATO: Accents = Accents {
-    base: rgb(0x24273a),
-    mantle: rgb(0x1e2030),
     surface0: rgb(0x363a4f),
     surface1: rgb(0x494d64),
     surface2: rgb(0x5b6078),
@@ -272,8 +269,6 @@ const MACCHIATO: Accents = Accents {
 };
 
 const LATTE: Accents = Accents {
-    base: rgb(0xeff1f5),
-    mantle: rgb(0xe6e9ef),
     surface0: rgb(0xccd0da),
     surface1: rgb(0xbcc0cc),
     surface2: rgb(0xacb0be),
@@ -292,9 +287,9 @@ const LATTE: Accents = Accents {
 
 // ---- iced_aw + container styles ----------------------------------------
 
-/// Symmetric horizontal gutter inside scrollables: keeps content centered
-/// whether or not a scrollbar is shown, and reserves room on the right so the
-/// scrollbar never clips a card's edge or border.
+/// Right-hand gutter inside scrollables: reserves room so the scrollbar never
+/// clips a card's edge or border. There is no left gutter, so scrolled content
+/// starts on the same edge as the fixed controls above it.
 pub const SCROLLBAR_GUTTER: f32 = SPACE_MD as f32;
 
 /// Secondary text, a step quieter than body text, for metadata, numbers, and
@@ -392,15 +387,17 @@ pub fn thumb_placeholder(theme: &Theme) -> container::Style {
     }
 }
 
-/// A subtle raised surface for the status line, set off from the app background
-/// and outlined in the accent for the message's kind.
-pub fn status_surface(theme: &Theme, outline: Color) -> container::Style {
+/// A subtle raised surface for the status line, set off from the app background.
+/// Without an accent outline it keeps a neutral border of the same width, so the
+/// bar's edge stays visible in the light theme and switching kinds never shifts
+/// its content.
+pub fn status_surface(theme: &Theme, outline: Option<Color>) -> container::Style {
     let a = accents(theme);
     container::Style {
         background: Some(Background::Color(a.surface0)),
         text_color: Some(a.text),
         border: Border {
-            color: outline,
+            color: outline.unwrap_or(a.surface2),
             width: 1.0,
             radius: 6.0.into(),
         },
@@ -408,15 +405,16 @@ pub fn status_surface(theme: &Theme, outline: Color) -> container::Style {
     }
 }
 
-/// Tab bar style. Tabs use their own surface (distinct from the cards' surface):
-/// the active tab is filled with the blue accent, inactive tabs sit on
-/// `surface1`, and hover lifts to `surface2`.
+/// Tab bar style. The bar sits on the window background: the active tab is a
+/// raised `surface1` label outlined in blue, and inactive tabs have no fill.
+/// Hover shares the active surface because iced_aw reports `Hovered` instead of
+/// `Active` for the selected tab under the pointer, so it must still look raised.
 pub fn tab_bar(theme: &Theme, status: Status) -> tab_bar::Style {
     let a = accents(theme);
     let mut base = tab_bar::Style {
-        background: Some(Background::Color(a.mantle)),
-        border_color: Some(a.surface2),
-        border_width: 1.0,
+        background: None,
+        border_color: None,
+        border_width: 0.0,
         tab_label_border_width: 0.0,
         tab_label_border_color: Color::TRANSPARENT,
         icon_color: a.text,
@@ -427,39 +425,22 @@ pub fn tab_bar(theme: &Theme, status: Status) -> tab_bar::Style {
     // Status::Hovered on hover, and Status::Disabled for inactive tabs.
     match status {
         Status::Active => {
-            base.tab_label_background = Background::Color(a.primary());
-            base.text_color = a.on_accent;
+            base.tab_label_background = Background::Color(a.surface1);
+            base.tab_label_border_color = a.primary();
+            base.tab_label_border_width = 1.5;
         }
         Status::Hovered => {
-            base.tab_label_background = Background::Color(a.surface2);
-            base.text_color = a.text;
+            base.tab_label_background = Background::Color(a.surface1);
         }
         _ => {
-            base.tab_label_background = Background::Color(a.surface1);
-            base.text_color = a.text;
+            base.tab_label_background = Background::Color(Color::TRANSPARENT);
         }
     }
     base
 }
 
-/// A bordered pane enclosing the active tab's content so the tab area is clearly
-/// delimited beneath the tab bar.
-pub fn panel(theme: &Theme) -> container::Style {
-    let a = accents(theme);
-    container::Style {
-        background: Some(Background::Color(a.base)),
-        text_color: Some(a.text),
-        border: Border {
-            color: a.surface2,
-            width: 1.0,
-            radius: 10.0.into(),
-        },
-        ..container::Style::default()
-    }
-}
-
-/// Card style: a neutral `surface1` header over a `surface0` body (a shade below
-/// the tabs' surface), with a defined border so each section reads as a panel.
+/// Card style: a neutral `surface1` header over a `surface0` body, with a
+/// defined border so each section reads as a panel on the window background.
 pub fn card(theme: &Theme) -> card::Style {
     let a = accents(theme);
     let surface = Background::Color(a.surface0);
@@ -508,7 +489,7 @@ mod tests {
 
     #[test]
     fn flavor_follows_theme() {
-        assert_eq!(accents(&theme(false)).base, LATTE.base);
-        assert_eq!(accents(&theme(true)).base, MACCHIATO.base);
+        assert_eq!(accents(&theme(false)).surface0, LATTE.surface0);
+        assert_eq!(accents(&theme(true)).surface0, MACCHIATO.surface0);
     }
 }

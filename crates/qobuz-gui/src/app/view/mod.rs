@@ -22,11 +22,10 @@ pub(super) fn bold() -> Font {
     }
 }
 
-/// Horizontal padding matching the scrollbar gutter, so scrollable content
-/// doesn't sit under the scrollbar.
+/// Right padding matching the scrollbar gutter, so scrollable content doesn't
+/// sit under the scrollbar while its left edge stays on the fixed controls'.
 pub(super) fn gutter_padding() -> iced::Padding {
     iced::Padding {
-        left: style::SCROLLBAR_GUTTER,
         right: style::SCROLLBAR_GUTTER,
         ..iced::Padding::ZERO
     }
@@ -40,7 +39,7 @@ pub(super) fn section(title: &str) -> Element<'_, Message> {
 /// bundled Inter, so none falls back to an OS font.
 fn status_look(kind: StatusKind) -> (&'static str, fn(&style::Accents) -> Color) {
     match kind {
-        StatusKind::Info => ("•", |a| a.surface2),
+        StatusKind::Info => ("•", |a| a.subtext),
         StatusKind::Progress => ("…", style::Accents::progress),
         StatusKind::Success => ("✓", style::Accents::success),
         StatusKind::Error => ("✗", style::Accents::error),
@@ -71,7 +70,10 @@ pub(super) fn status_bar(status: Option<&Status>) -> Element<'_, Message> {
     }
 
     container(line)
-        .style(move |theme| style::status_surface(theme, role(&style::accents(theme))))
+        .style(move |theme| {
+            let outline = (kind == StatusKind::Error).then(|| style::accents(theme).error());
+            style::status_surface(theme, outline)
+        })
         .padding([0, style::SPACE_MD])
         .center_y(Length::Fixed(style::CONTROL_HEIGHT))
         .width(Length::Fill)

@@ -1,6 +1,6 @@
 //! The iced desktop application: settings, search/add, and download queue.
 
-use crate::style::{self, secondary_button};
+use crate::style::{self, compact_button};
 use album::{AlbumDetail, DetailState};
 use iced::futures::{future, SinkExt};
 use iced::widget::{column, container, row, scrollable, text};
@@ -26,6 +26,10 @@ mod paging;
 mod status;
 mod tasks;
 mod view;
+
+/// Fits the longer of "Light" / "Dark", so the toggle doesn't shift when its
+/// label changes.
+const THEME_TOGGLE_WIDTH: f32 = 64.0;
 
 /// The app/window icon, rasterized from `assets/icon.svg`.
 fn window_icon() -> Option<iced::window::Icon> {
@@ -1336,14 +1340,14 @@ impl App {
         let signed_in = self.signed_in();
         let header = row![
             wordmark.width(Length::Fill),
-            secondary_button(
-                if self.config.dark_mode {
-                    "Light theme"
-                } else {
-                    "Dark theme"
-                },
-                Message::ToggleTheme,
-            ),
+            // No ☀/☾ glyphs: the bundled Inter has no ☾, so the pair can't match.
+            compact_button(if self.config.dark_mode {
+                "Light"
+            } else {
+                "Dark"
+            })
+            .width(Length::Fixed(THEME_TOGGLE_WIDTH))
+            .on_press(Message::ToggleTheme),
             text(if signed_in {
                 "●  signed in"
             } else {
@@ -1358,7 +1362,7 @@ impl App {
         let tabs = Tabs::new(Message::Navigate)
             .push(
                 Screen::Search,
-                TabLabel::Text("Search / Add".to_owned()),
+                TabLabel::Text("Search".to_owned()),
                 tab_pane(view::search::search_view(self)),
             )
             .push(
@@ -1386,12 +1390,14 @@ impl App {
     }
 }
 
-/// Wraps a tab's content in a bordered pane so the active tab's area is clearly
-/// delimited beneath the tab bar.
+/// Places a tab's content below the tab bar. iced_aw's `Tabs` has no content
+/// spacing, so the gap is a top padding here.
 fn tab_pane<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(content)
-        .style(style::panel)
-        .padding(style::SPACE_LG)
+        .padding(iced::Padding {
+            top: style::SPACE_LG as f32,
+            ..iced::Padding::ZERO
+        })
         .width(Length::Fill)
         .height(Length::Fill)
         .into()

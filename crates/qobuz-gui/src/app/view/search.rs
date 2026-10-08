@@ -1,4 +1,4 @@
-//! The Search / Add screen: one field that searches or adds a pasted link.
+//! The Search screen: one field that searches or adds a pasted link.
 
 use super::super::paging::{Kind, Section};
 use super::super::{AlbumResult, App, Message, Screen, TrackResult};
