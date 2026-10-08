@@ -407,9 +407,14 @@ async fn fetch_cover(
     bytes
 }
 
+/// Short delivered-quality label: `FLAC 24/96`, `FLAC 16/44.1`, or `MP3 320`.
+/// Falls back to the tier's name when the response omits the technical details.
 fn describe_delivered(file: &crate::models::FileUrl, quality: Quality) -> String {
+    if quality == Quality::Mp3 {
+        return quality.label().to_string();
+    }
     match (file.bit_depth, file.sampling_rate) {
-        (Some(b), Some(s)) => format!("{} {}bit/{}kHz", quality.label(), b, s),
+        (Some(b), Some(s)) => format!("FLAC {b}/{s}"),
         _ => quality.label().to_string(),
     }
 }
@@ -520,6 +525,28 @@ mod tests {
             path,
             PathBuf::from("/music/Miles Davis/Kind of Blue (1959)/01 - So What.flac")
         );
+    }
+
+    fn file_with(bit_depth: Option<u32>, sampling_rate: Option<f64>) -> FileUrl {
+        FileUrl {
+            url: Some("u".into()),
+            format_id: None,
+            bit_depth,
+            sampling_rate,
+            mime_type: None,
+            restrictions: None,
+        }
+    }
+
+    #[test]
+    fn delivered_label_is_short() {
+        let hires = file_with(Some(24), Some(96.0));
+        assert_eq!(describe_delivered(&hires, Quality::Flac24), "FLAC 24/96");
+        let cd = file_with(Some(16), Some(44.1));
+        assert_eq!(describe_delivered(&cd, Quality::FlacCd), "FLAC 16/44.1");
+        assert_eq!(describe_delivered(&cd, Quality::Mp3), "MP3 320");
+        let bare = file_with(None, None);
+        assert_eq!(describe_delivered(&bare, Quality::Flac24), "FLAC 24/≤96");
     }
 
     #[test]

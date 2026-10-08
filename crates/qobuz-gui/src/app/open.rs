@@ -1,66 +1,44 @@
-//! Showing downloaded files in the system file manager, through each OS's own
+//! Opening download folders in the system file manager, through each OS's own
 //! command rather than a dependency.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// What to show: a folder, or a file to select inside its folder.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Target {
-    Folder(PathBuf),
-    File(PathBuf),
-}
-
-/// The command that shows `target`, or `NotFound` when it no longer exists, so
+/// The command that opens `path`, or `NotFound` when it no longer exists, so
 /// a moved or deleted download is reported instead of opening nothing.
-pub(super) fn command(target: &Target) -> io::Result<Command> {
-    let path = match target {
-        Target::Folder(p) | Target::File(p) => p,
-    };
+pub(super) fn command(path: &Path) -> io::Result<Command> {
     if !path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("{} no longer exists", path.display()),
         ));
     }
-    Ok(platform_command(target))
+    Ok(platform_command(path))
 }
 
 #[cfg(target_os = "macos")]
-fn platform_command(target: &Target) -> Command {
+fn platform_command(dir: &Path) -> Command {
     let mut cmd = Command::new("open");
-    match target {
-        Target::Folder(dir) => cmd.arg(dir),
-        Target::File(file) => cmd.arg("-R").arg(file),
-    };
+    cmd.arg(dir);
     cmd
 }
 
 /// Explorer splits its command line on commas as well as spaces, while Rust
 /// quotes an argument only when it contains a space, so a path like `A,B`
-/// would be cut in two. The path is quoted by hand and passed raw, and
-/// `/select,` must arrive in the same argument as it.
+/// would be cut in two. The path is quoted by hand and passed raw.
 #[cfg(windows)]
-fn platform_command(target: &Target) -> Command {
+fn platform_command(dir: &Path) -> Command {
     use std::os::windows::process::CommandExt;
     let mut cmd = Command::new("explorer");
-    match target {
-        Target::Folder(dir) => cmd.raw_arg(format!("\"{}\"", dir.display())),
-        Target::File(file) => cmd.raw_arg(format!("/select,\"{}\"", file.display())),
-    };
+    cmd.raw_arg(format!("\"{}\"", dir.display()));
     cmd
 }
 
-/// No standard "select this file" exists across Linux file managers, so a
-/// file opens its folder.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn platform_command(target: &Target) -> Command {
+fn platform_command(dir: &Path) -> Command {
     let mut cmd = Command::new("xdg-open");
-    match target {
-        Target::Folder(dir) => cmd.arg(dir),
-        Target::File(file) => cmd.arg(file.parent().unwrap_or(file)),
-    };
+    cmd.arg(dir);
     cmd
 }
 
@@ -123,15 +101,13 @@ mod tests {
     #[test]
     fn missing_path_is_not_found_without_a_command() {
         let gone = std::env::temp_dir().join("qobuz-dl-open-test-does-not-exist");
-        for target in [Target::Folder(gone.clone()), Target::File(gone.clone())] {
-            let err = command(&target).unwrap_err();
-            assert_eq!(err.kind(), io::ErrorKind::NotFound);
-            assert!(err.to_string().contains("no longer exists"));
-        }
+        let err = command(&gone).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("no longer exists"));
     }
 
     #[test]
     fn existing_folder_builds_a_command() {
-        assert!(command(&Target::Folder(std::env::temp_dir())).is_ok());
+        assert!(command(&std::env::temp_dir()).is_ok());
     }
 }

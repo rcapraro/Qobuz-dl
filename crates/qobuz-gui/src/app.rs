@@ -72,7 +72,7 @@ struct QueueItem {
     status: ItemStatus,
     downloaded: u64,
     total: Option<u64>,
-    /// The downloaded file once done: what "Open folder" and "Show in folder" act on.
+    /// The downloaded file once done: where its group's "Open folder" looks.
     path: Option<PathBuf>,
 }
 
@@ -140,8 +140,8 @@ fn more_loaded<T>(
     Ok(covers)
 }
 
-fn open_target(target: open::Target) -> Task<Message> {
-    Task::perform(tasks::open_path(target), Message::Opened)
+fn open_folder(folder: PathBuf) -> Task<Message> {
+    Task::perform(tasks::open_path(folder), Message::Opened)
 }
 
 fn queue_tab_label(queue: &[QueueItem]) -> String {
@@ -317,9 +317,6 @@ enum Message {
     // Downloads.
     StartDownloads,
     CancelDownloads,
-    RetryTrack(i64),
-    /// Takes a settled track out of the queue list (never deletes its file).
-    RemoveTrack(i64),
     RetryFailed,
     ClearQueue,
     ToggleGroup(String),
@@ -327,8 +324,6 @@ enum Message {
     RemoveGroup(String),
     /// Opens the folder holding an album group's downloaded files.
     OpenAlbumFolder(String),
-    /// Shows a done track's file in its folder.
-    RevealTrack(i64),
     OpenDownloadDir,
     Opened(Result<(), String>),
     Download(JobEvent),
@@ -884,22 +879,6 @@ impl App {
                 }
                 Task::none()
             }
-            Message::RetryTrack(track_id) => {
-                let job = self
-                    .queue
-                    .iter()
-                    .find(|it| it.track_id == track_id)
-                    .filter(|it| matches!(it.status, ItemStatus::Error(_)))
-                    .map(|it| it.job.clone());
-                match job {
-                    Some(job) => self.spawn_downloads(vec![job]),
-                    None => Task::none(),
-                }
-            }
-            Message::RemoveTrack(track_id) => {
-                self.remove_where(|it| it.track_id == track_id);
-                Task::none()
-            }
             Message::RetryFailed => {
                 let jobs = self.jobs_with(|s| matches!(s, ItemStatus::Error(_)));
                 if jobs.is_empty() {
@@ -924,23 +903,10 @@ impl App {
                 Task::none()
             }
             Message::OpenAlbumFolder(album_id) => match self.album_folder(&album_id) {
-                Some(folder) => open_target(open::Target::Folder(folder)),
+                Some(folder) => open_folder(folder),
                 None => Task::none(),
             },
-            Message::RevealTrack(track_id) => {
-                match self
-                    .queue
-                    .iter()
-                    .find(|it| it.track_id == track_id)
-                    .and_then(|it| it.path.clone())
-                {
-                    Some(file) => open_target(open::Target::File(file)),
-                    None => Task::none(),
-                }
-            }
-            Message::OpenDownloadDir => {
-                open_target(open::Target::Folder(self.config.download_dir.clone()))
-            }
+            Message::OpenDownloadDir => open_folder(self.config.download_dir.clone()),
             Message::Opened(Ok(())) => Task::none(),
             Message::Opened(Err(e)) => {
                 self.status = Some(Status::error(e));
@@ -1845,34 +1811,20 @@ mod tests {
     }
 
     #[test]
-    fn remove_track_takes_done_and_failed_rows() {
+    fn removing_a_group_drops_its_failures_from_retry() {
         let mut app = app();
         app.queue = vec![
-            queued(1, "a", ItemStatus::Done("FLAC".into())),
-            queued(2, "a", ItemStatus::Error("x".into())),
-            queued(3, "a", ItemStatus::Queued),
+            queued(1, "a", ItemStatus::Error("x".into())),
+            queued(2, "a", ItemStatus::Done("FLAC".into())),
+            queued(3, "b", ItemStatus::Error("y".into())),
         ];
-        let _ = app.update(Message::RemoveTrack(1));
-        let _ = app.update(Message::RemoveTrack(2));
-        assert_eq!(queued_ids(&app), [3]);
-    }
-
-    #[test]
-    fn remove_track_leaves_a_downloading_row() {
-        let mut app = app();
-        app.queue = vec![queued(1, "a", ItemStatus::Downloading)];
-        let _ = app.update(Message::RemoveTrack(1));
-        assert_eq!(queued_ids(&app), [1]);
-    }
-
-    #[test]
-    fn remove_track_is_ignored_during_its_batch() {
-        let mut app = app();
-        app.queue = vec![queued(1, "a", ItemStatus::Done("FLAC".into()))];
-        app.batch = vec![1];
-        app.downloading = true;
-        let _ = app.update(Message::RemoveTrack(1));
-        assert_eq!(queued_ids(&app), [1]);
+        let _ = app.update(Message::RemoveGroup("a".into()));
+        let failed: Vec<i64> = app
+            .jobs_with(|s| matches!(s, ItemStatus::Error(_)))
+            .iter()
+            .map(|job| job.track.id)
+            .collect();
+        assert_eq!(failed, [3]);
     }
 
     #[test]
@@ -1885,19 +1837,6 @@ mod tests {
         app.batch = vec![1];
         app.downloading = true;
         let _ = app.update(Message::RemoveGroup("a".into()));
-        assert_eq!(queued_ids(&app), [1]);
-    }
-
-    #[test]
-    fn track_added_during_a_batch_is_removable() {
-        let mut app = app();
-        app.queue = vec![
-            queued(1, "a", ItemStatus::Downloading),
-            queued(2, "b", ItemStatus::Queued),
-        ];
-        app.batch = vec![1];
-        app.downloading = true;
-        let _ = app.update(Message::RemoveTrack(2));
         assert_eq!(queued_ids(&app), [1]);
     }
 

@@ -2,10 +2,10 @@
 
 use super::super::album::guest_performer;
 use super::super::tasks::thumbnail;
-use super::super::{removable, startable, App, ItemStatus, Message, QueueItem};
+use super::super::{startable, App, ItemStatus, Message, QueueItem};
 use super::{bold, cover, gutter_padding, quality_badge};
 use crate::style::{self, compact_button, secondary_button, styled_button};
-use iced::widget::{button, column, container, progress_bar, row, scrollable, text};
+use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
 use iced::{Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 use qobuz_core::engine::Job;
@@ -101,6 +101,7 @@ const GROUP_COVER_SIZE: f32 = 40.0;
 fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     let album = group.album;
     let summary = summarize(&group.items);
+    let quality = group_quality(&group.items);
     let collapsed = app.collapsed.contains(&album.id);
     let thumb = thumbnail(album.image.as_ref()).and_then(|url| app.thumbnails.get(&url));
 
@@ -129,10 +130,13 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         ]
         .spacing(2)
         .width(Length::Fill),
-        count,
     ]
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center);
+    if let Some(quality) = quality {
+        head = head.push(quality_badge(quality));
+    }
+    head = head.push(count);
 
     if app.album_folder(&album.id).is_some() {
         head = head.push(
@@ -152,7 +156,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     if !collapsed {
         let mut rows = column![].spacing(style::SPACE_SM);
         for it in &group.items {
-            rows = rows.push(queue_row(it, app.downloading, app.can_remove(it)));
+            rows = rows.push(queue_row(it, quality));
         }
         // Indented under the header so rows read as belonging to the album.
         body = body.push(container(rows).padding(iced::Padding {
@@ -187,13 +191,12 @@ fn empty_state<'a>() -> Element<'a, Message> {
 
 /// How far one queue item has advanced, in `0.0..=1.0`.
 ///
-/// `settled_on_error` is the one place the batch aggregate and the item's own
-/// bar disagree. A failed item is finished — it will not move again without an
-/// explicit retry — so it counts as advanced for the overall bar; otherwise a
-/// single permanent failure would pin the batch below full forever, which
-/// reads as "still working" when nothing is running. Its *own* bar stays empty
-/// though: a full bar under a red error badge would be actively misleading.
-fn item_fraction(it: &QueueItem, settled_on_error: bool) -> f32 {
+/// A failed item is finished — it will not move again without an explicit
+/// retry — so it counts as advanced; otherwise a single permanent failure would
+/// pin the batch below full forever, which reads as "still working" when
+/// nothing is running. A failed row draws no bar of its own, so this never
+/// shows as a full bar under a red badge.
+fn item_fraction(it: &QueueItem) -> f32 {
     match &it.status {
         ItemStatus::Queued => 0.0,
         ItemStatus::Downloading => match it.total {
@@ -204,25 +207,8 @@ fn item_fraction(it: &QueueItem, settled_on_error: bool) -> f32 {
             Some(t) if t > 0 => (it.downloaded as f32 / t as f32).clamp(0.0, 1.0),
             _ => 0.0,
         },
-        ItemStatus::Tagging | ItemStatus::Done(_) => 1.0,
-        ItemStatus::Error(_) => {
-            if settled_on_error {
-                1.0
-            } else {
-                0.0
-            }
-        }
+        ItemStatus::Tagging | ItemStatus::Done(_) | ItemStatus::Error(_) => 1.0,
     }
-}
-
-/// Per-item progress as counted toward the batch aggregate.
-fn batch_fraction(it: &QueueItem) -> f32 {
-    item_fraction(it, true)
-}
-
-/// Per-item progress as rendered on that item's own bar.
-fn row_fraction(it: &QueueItem) -> f32 {
-    item_fraction(it, false)
 }
 
 /// Overall batch progress in `0.0..=1.0`: the share of the *whole* queue that
@@ -244,7 +230,7 @@ fn overall_progress(queue: &[QueueItem]) -> f32 {
 /// exactly the same semantics as the whole queue's.
 fn progress<'a>(items: impl IntoIterator<Item = &'a QueueItem>) -> f32 {
     let (sum, count) = items.into_iter().fold((0.0, 0usize), |(sum, n), it| {
-        (sum + batch_fraction(it), n + 1)
+        (sum + item_fraction(it), n + 1)
     });
     if count == 0 {
         0.0
@@ -315,17 +301,39 @@ fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, ic
     }
 }
 
-fn queue_row(it: &QueueItem, downloading: bool, can_remove: bool) -> Element<'_, Message> {
+/// The delivered quality most of a group's done tracks share, shown once on its
+/// header. Ties go to the label reached first in queue order, so it is stable.
+fn group_quality<'a>(items: &[&'a QueueItem]) -> Option<&'a str> {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for it in items {
+        if let ItemStatus::Done(label) = &it.status {
+            match counts.iter_mut().find(|(seen, _)| seen == label) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((label, 1)),
+            }
+        }
+    }
+    // `max_by_key` keeps the last of equal maxima; reversing makes that the first.
+    counts
+        .into_iter()
+        .rev()
+        .max_by_key(|&(_, n)| n)
+        .map(|(label, _)| label)
+}
+
+/// A track row: title, a quality badge only when the track was delivered
+/// differently from its album, its status, and a bar only while in progress.
+fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, Message> {
     // The badge label is derived from the same fraction the bar renders, so the
     // two can't drift apart.
-    let fraction = row_fraction(it);
+    let fraction = item_fraction(it);
     let status_text: String = match &it.status {
-        ItemStatus::Queued => "queued".into(),
+        ItemStatus::Queued => "Queued".into(),
         // Pad to a constant width so the badge doesn't shift as digits change.
-        ItemStatus::Downloading => format!("downloading {:>3.0}%", fraction * 100.0),
-        ItemStatus::Tagging => "tagging".into(),
-        ItemStatus::Done(_) => "done".into(),
-        ItemStatus::Error(e) => format!("error: {e}"),
+        ItemStatus::Downloading => format!("Downloading {:>3.0}%", fraction * 100.0),
+        ItemStatus::Tagging => "Tagging".into(),
+        ItemStatus::Done(_) => "Done".into(),
+        ItemStatus::Error(e) => format!("Failed: {e}"),
     };
 
     let pick = badge_palette(&it.status);
@@ -344,42 +352,28 @@ fn queue_row(it: &QueueItem, downloading: bool, can_remove: bool) -> Element<'_,
     if let Some(guest) = guest {
         label = label.push(text(guest).size(style::TEXT_SM).style(style::muted_text));
     }
-    let mut top = row![label.width(Length::Fill), badge]
+    let mut top = row![label.width(Length::Fill)]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
-
     if let ItemStatus::Done(delivered) = &it.status {
-        top = top.push(quality_badge(delivered.as_str()));
+        if Some(delivered.as_str()) != group_quality {
+            top = top.push(quality_badge(delivered.as_str()));
+        }
     }
+    top = top.push(badge);
 
-    // A failed track can be relaunched (disabled while a batch is running).
-    if matches!(it.status, ItemStatus::Error(_)) {
-        let retry = compact_button("Retry")
-            .on_press_maybe((!downloading).then_some(Message::RetryTrack(it.track_id)));
-        top = top.push(retry);
-    }
-
-    // Opening is harmless mid-batch, so unlike Remove it is never disabled.
-    if matches!(it.status, ItemStatus::Done(_)) && it.path.is_some() {
-        top =
-            top.push(compact_button("Show in folder").on_press(Message::RevealTrack(it.track_id)));
-    }
-
-    // Any settled track can be taken out of the list, files untouched
-    // (disabled while its batch is running).
-    if removable(&it.status) {
-        let remove = compact_button("Remove")
-            .on_press_maybe(can_remove.then_some(Message::RemoveTrack(it.track_id)));
-        top = top.push(remove);
-    }
-
-    column![
-        top,
-        progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
-            .height(Length::Fixed(style::PROGRESS_HEIGHT)),
-    ]
-    .spacing(style::SPACE_XS)
-    .into()
+    let bar_slot = Length::Fixed(style::PROGRESS_HEIGHT);
+    // An empty slot of the bar's height keeps every row the same height, so the
+    // list doesn't shift as tracks start and finish.
+    let bar: Element<'a, Message> =
+        if matches!(it.status, ItemStatus::Downloading | ItemStatus::Tagging) {
+            progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
+                .height(bar_slot)
+                .into()
+        } else {
+            Space::with_height(bar_slot).into()
+        };
+    column![top, bar].spacing(style::SPACE_XS).into()
 }
 
 #[cfg(test)]
@@ -418,6 +412,48 @@ mod tests {
                 (g.album.id.clone(), ids)
             })
             .collect()
+    }
+
+    fn quality_of(statuses: Vec<ItemStatus>) -> Option<String> {
+        let queue: Vec<QueueItem> = statuses
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| track_in(i as i64, "a", s))
+            .collect();
+        let items: Vec<&QueueItem> = queue.iter().collect();
+        group_quality(&items).map(str::to_owned)
+    }
+
+    fn done_as(label: &str) -> ItemStatus {
+        ItemStatus::Done(label.into())
+    }
+
+    #[test]
+    fn group_quality_when_all_match() {
+        let q = quality_of(vec![done_as("FLAC 24/96"), done_as("FLAC 24/96")]);
+        assert_eq!(q.as_deref(), Some("FLAC 24/96"));
+    }
+
+    #[test]
+    fn group_quality_ignores_a_downgraded_track() {
+        let q = quality_of(vec![
+            done_as("FLAC 24/96"),
+            done_as("FLAC 16/44.1"),
+            done_as("FLAC 24/96"),
+        ]);
+        assert_eq!(q.as_deref(), Some("FLAC 24/96"));
+    }
+
+    #[test]
+    fn group_quality_none_until_a_track_is_done() {
+        let q = quality_of(vec![ItemStatus::Queued, ItemStatus::Error("x".into())]);
+        assert_eq!(q, None);
+    }
+
+    #[test]
+    fn group_quality_tie_goes_to_the_first_label() {
+        let q = quality_of(vec![done_as("FLAC 16/44.1"), done_as("FLAC 24/96")]);
+        assert_eq!(q.as_deref(), Some("FLAC 16/44.1"));
     }
 
     #[test]
@@ -558,10 +594,9 @@ mod tests {
     }
 
     #[test]
-    fn row_bar_is_empty_for_failed_item() {
+    fn failed_item_counts_as_settled() {
         let failed = item(None, 0, ItemStatus::Error("boom".into()));
-        assert_eq!(row_fraction(&failed), 0.0);
-        assert_eq!(batch_fraction(&failed), 1.0);
+        assert_eq!(item_fraction(&failed), 1.0);
     }
 
     #[test]

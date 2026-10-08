@@ -32,8 +32,8 @@ quality, cover art, file organization, and tags.
 | ![Search screen — album results with cover art and Hi-Res badges](docs/screenshots/search.png) | ![Album screen — track list with selection and durations](docs/screenshots/album.png) | ![Queue screen — downloads grouped by album, with open-folder actions](docs/screenshots/queue.png) | ![Settings screen — account, quality, path templates, and notifications](docs/screenshots/settings.png) |
 
 *Search for albums and tracks, or paste a Qobuz URL. Open an album to pick the
-tracks you want. The queue groups downloads by album, with per-track progress,
-retry, and buttons to open the downloaded files. Settings hold your
+tracks you want. The queue groups downloads by album, with per-track status,
+retry for failed tracks, and a button to open each album's folder. Settings hold your
 credentials, quality preference, path templates, and notifications.*
 
 ## Installation
@@ -90,12 +90,13 @@ only need to do this once unless you sign out or the token is revoked.
    all of it. Click its title or cover instead to open the album, check the
    tracks you want, and add only those. **Back** returns to your results.
 3. **Queue downloads** — tracks are grouped under their album in the Queue,
-   each group with its cover, a done count, and its own progress bar, and the
-   Queue tab shows how many tracks are still to process. Groups can be
-   collapsed and failed items retried. When no batch is running, **Remove**
-   takes a track or a whole album group out of the list; files on disk are
-   never deleted. **Open folder** on an album, or **Show in folder** on a
-   track, opens the downloaded files in your file manager. Settings has an
+   each group with its cover, a done count, the quality it was delivered in,
+   and its own progress bar, and the Queue tab shows how many tracks are still
+   to process. A track delivered at a different quality from its album shows
+   its own. Groups can be collapsed, and **Retry failed** relaunches failed
+   tracks. When no batch is running, **Remove** on an album group takes it out
+   of the list; files on disk are never deleted. **Open folder** on an album
+   opens its downloaded files in your file manager. Settings has an
    **Open** button next to the download directory.
 4. **Files land** in your configured download directory, organized by the
    folder/track **path templates** (e.g. `{artist}/{album}` /

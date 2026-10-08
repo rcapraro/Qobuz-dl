@@ -140,13 +140,13 @@ fn track_page(list: TrackList) -> Page<TrackResult> {
     }
 }
 
-/// Show a file or folder in the system file manager. Waits for the opener so
+/// Open a folder in the system file manager. Waits for the opener so
 /// it is reaped, but ignores its exit code: `explorer` exits 1 even when it
 /// opened the window. Only a missing path or a command that cannot start is
 /// an error.
-pub(super) async fn open_path(target: open::Target) -> Result<(), String> {
+pub(super) async fn open_path(folder: PathBuf) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        open::command(&target)?.status()?;
+        open::command(&folder)?.status()?;
         Ok::<_, std::io::Error>(())
     })
     .await
