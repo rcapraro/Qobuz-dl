@@ -23,7 +23,8 @@ quality, cover art, file organization, and tags.
 - **Open an album** from search to see its track list and add only the tracks you pick.
 - **Download queue** with per-item progress, bounded concurrency, and retry, and a
   **desktop notification** when a batch finishes while the app is in the background.
-- **Open the downloaded files** from the queue: an album's folder, or a single track shown in its folder.
+- **Open the downloaded files** from the queue, one album folder at a time.
+- **Keyboard shortcuts**: `/` to search, Ctrl+Tab / Ctrl+Shift+Tab to switch tabs, Esc to leave an album, ⌘↵ (Ctrl+Enter elsewhere) to add its selected tracks.
 
 ## Screenshots
 

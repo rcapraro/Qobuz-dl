@@ -23,6 +23,7 @@ mod notify;
 mod omnibox;
 mod open;
 mod paging;
+mod shortcut;
 mod status;
 mod tasks;
 mod view;
@@ -61,6 +62,27 @@ enum Screen {
     Settings,
     Search,
     Queue,
+}
+
+/// The queue's track and album ids, so search results can show what is
+/// already queued without scanning the queue once per row.
+struct Queued<'a> {
+    tracks: HashSet<i64>,
+    albums: HashSet<&'a str>,
+}
+
+impl Queued<'_> {
+    /// Result ids are strings; one that isn't numeric can't be a queued track.
+    fn track(&self, track_id: &str) -> bool {
+        track_id
+            .parse::<i64>()
+            .is_ok_and(|id| self.tracks.contains(&id))
+    }
+
+    /// Whether any track of the album is queued.
+    fn album(&self, album_id: &str) -> bool {
+        self.albums.contains(album_id)
+    }
 }
 
 /// A single row in the download queue.
@@ -260,6 +282,7 @@ pub struct App {
 #[derive(Debug, Clone)]
 enum Message {
     Navigate(Screen),
+    Shortcut(shortcut::Shortcut),
     ToggleTheme,
     DismissStatus,
     ToggleTemplateHelp,
@@ -450,6 +473,7 @@ impl App {
                 self.screen = s;
                 Task::none()
             }
+            Message::Shortcut(s) => self.on_shortcut(s),
             Message::ToggleTheme => {
                 self.config.dark_mode = !self.config.dark_mode;
                 self.save_config();
@@ -988,6 +1012,44 @@ impl App {
         )
     }
 
+    /// Act on a keyboard shortcut. The album-detail keys only apply where that
+    /// detail is on screen, so Escape on another tab does nothing.
+    fn on_shortcut(&mut self, s: shortcut::Shortcut) -> Task<Message> {
+        use shortcut::Shortcut;
+        // The setup prompt replaces the album on screen while setup is missing.
+        let album_on_screen = self.screen == Screen::Search
+            && self.album.is_some()
+            && view::search::setup_gap(&self.config, self.signed_in()).is_none();
+        match s {
+            // Not from Settings: its number field leaves a rejected `/`
+            // unclaimed, so the press can't be told from one in no field.
+            Shortcut::FocusSearch if self.screen != Screen::Settings => {
+                self.screen = Screen::Search;
+                iced::widget::text_input::focus(view::search::search_input_id())
+            }
+            Shortcut::FocusSearch => Task::none(),
+            Shortcut::NextTab => self.update(Message::Navigate(shortcut::next_tab(self.screen))),
+            Shortcut::PreviousTab => {
+                self.update(Message::Navigate(shortcut::previous_tab(self.screen)))
+            }
+            Shortcut::Escape if album_on_screen => self.update(Message::CloseAlbum),
+            Shortcut::AddSelected if album_on_screen => self.update(Message::AddSelected),
+            Shortcut::Escape | Shortcut::AddSelected => Task::none(),
+        }
+    }
+
+    /// What the queue holds, indexed once per render for the result rows.
+    fn queued(&self) -> Queued<'_> {
+        Queued {
+            tracks: self.queue.iter().map(|it| it.track_id).collect(),
+            albums: self
+                .queue
+                .iter()
+                .map(|it| it.job.album.id.as_str())
+                .collect(),
+        }
+    }
+
     /// Whether a track can be taken out of the queue list now: it is settled
     /// and not part of a running batch, where a queued track may be about to
     /// start and the end-of-batch status counts the batch's rows. Tracks added
@@ -1043,12 +1105,17 @@ impl App {
         )
     }
 
-    /// Window focus, which decides whether a finished batch notifies.
+    /// Window focus, which decides whether a finished batch notifies, and key
+    /// presses for shortcuts. Raw events rather than `keyboard::on_key_press`,
+    /// which drops presses a focused text field captured.
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::event::listen_with(|event, _status, _window| match event {
+        iced::event::listen_with(|event, status, _window| match event {
             iced::Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocus(true)),
             iced::Event::Window(iced::window::Event::Unfocused) => {
                 Some(Message::WindowFocus(false))
+            }
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                shortcut::shortcut(&key, modifiers, status).map(Message::Shortcut)
             }
             _ => None,
         })
@@ -1628,6 +1695,91 @@ mod tests {
         assert!(app.album.is_some());
     }
 
+    fn press(app: &mut App, s: shortcut::Shortcut) {
+        let _ = app.update(Message::Shortcut(s));
+    }
+
+    /// An open album with setup done, so Search shows the album rather than
+    /// the setup prompt.
+    fn set_up_with_loaded_album() -> App {
+        let mut app = app_with_loaded_album();
+        app.config.app_id = "id".into();
+        app.config.app_secret = "secret".into();
+        app.token = Some(StoredToken {
+            value: "token".into(),
+            origin: TokenOrigin::Restored,
+        });
+        app
+    }
+
+    #[test]
+    fn escape_closes_the_open_album() {
+        let mut app = set_up_with_loaded_album();
+        press(&mut app, shortcut::Shortcut::Escape);
+        assert!(app.album.is_none());
+    }
+
+    #[test]
+    fn album_shortcuts_ignore_an_album_behind_the_setup_prompt() {
+        let mut app = set_up_with_loaded_album();
+        app.token = None;
+        press(&mut app, shortcut::Shortcut::AddSelected);
+        press(&mut app, shortcut::Shortcut::Escape);
+        assert!(app.queue.is_empty());
+        assert!(app.album.is_some());
+    }
+
+    #[test]
+    fn slash_from_settings_stays_on_settings() {
+        let mut app = app();
+        app.screen = Screen::Settings;
+        press(&mut app, shortcut::Shortcut::FocusSearch);
+        assert_eq!(app.screen, Screen::Settings);
+    }
+
+    #[test]
+    fn escape_on_another_tab_keeps_the_album() {
+        let mut app = app_with_loaded_album();
+        app.screen = Screen::Settings;
+        press(&mut app, shortcut::Shortcut::Escape);
+        assert!(app.album.is_some());
+    }
+
+    #[test]
+    fn escape_without_an_album_changes_nothing() {
+        let mut app = app();
+        press(&mut app, shortcut::Shortcut::Escape);
+        assert!(app.album.is_none());
+        assert_eq!(app.screen, Screen::Search);
+    }
+
+    #[test]
+    fn command_enter_adds_the_selection_on_search() {
+        let mut app = set_up_with_loaded_album();
+        press(&mut app, shortcut::Shortcut::AddSelected);
+        assert_eq!(queued_ids(&app), [1, 2, 3]);
+    }
+
+    #[test]
+    fn command_enter_off_the_search_tab_adds_nothing() {
+        let mut app = app_with_loaded_album();
+        app.screen = Screen::Queue;
+        press(&mut app, shortcut::Shortcut::AddSelected);
+        assert!(app.queue.is_empty());
+    }
+
+    #[test]
+    fn tab_shortcuts_navigate() {
+        let mut app = app();
+        press(&mut app, shortcut::Shortcut::PreviousTab);
+        assert_eq!(app.screen, Screen::Settings);
+        press(&mut app, shortcut::Shortcut::NextTab);
+        assert_eq!(app.screen, Screen::Search);
+        app.screen = Screen::Queue;
+        press(&mut app, shortcut::Shortcut::FocusSearch);
+        assert_eq!(app.screen, Screen::Search);
+    }
+
     #[test]
     fn add_selected_skips_tracks_already_queued() {
         let mut app = app_with_loaded_album();
@@ -1734,6 +1886,32 @@ mod tests {
             path: Some(PathBuf::from(file)),
             ..queued(track_id, album_id, ItemStatus::Done("FLAC".into()))
         }
+    }
+
+    #[test]
+    fn queued_track_matches_by_id() {
+        let mut app = app();
+        app.queue = vec![queued(7, "a", ItemStatus::Queued)];
+        assert!(app.queued().track("7"));
+        assert!(!app.queued().track("8"));
+        assert!(!app.queued().track("not-a-number"));
+    }
+
+    #[test]
+    fn queued_album_matches_any_of_its_tracks() {
+        let mut app = app();
+        app.queue = vec![queued(7, "a", ItemStatus::Done("FLAC 24/96".into()))];
+        assert!(app.queued().album("a"));
+        assert!(!app.queued().album("b"));
+    }
+
+    #[test]
+    fn queued_results_clear_with_the_queue() {
+        let mut app = app();
+        app.queue = vec![queued(7, "a", ItemStatus::Queued)];
+        let _ = app.update(Message::ClearQueue);
+        assert!(!app.queued().track("7"));
+        assert!(!app.queued().album("a"));
     }
 
     #[test]

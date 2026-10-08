@@ -5,19 +5,21 @@ use super::super::{AlbumResult, App, Message, Screen, TrackResult};
 use super::album::album_view;
 use super::{bold, card_el, cover, gutter_padding, quality_badge};
 use crate::style::{self, action_button, compact_button, field_input, styled_button};
-use iced::widget::{button, column, container, image, row, scrollable, text, Column};
+use iced::widget::{
+    button, column, container, image, row, scrollable, text, text_input, Column, Space,
+};
 use iced::{Element, Length};
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
 
 /// What still blocks searching. Credentials come first: signing in needs them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SetupGap {
+pub(in crate::app) enum SetupGap {
     Credentials,
     SignIn,
 }
 
-fn setup_gap(config: &Config, signed_in: bool) -> Option<SetupGap> {
+pub(in crate::app) fn setup_gap(config: &Config, signed_in: bool) -> Option<SetupGap> {
     if !config.has_app_credentials() {
         Some(SetupGap::Credentials)
     } else if !signed_in {
@@ -34,6 +36,7 @@ pub(in crate::app) fn search_view(app: &App) -> Element<'_, Message> {
             &app.search_query
         )
         .on_input(Message::SearchQueryChanged)
+        .id(search_input_id())
         .on_submit(Message::SearchSubmit)
         .width(Length::Fill),
         action_button("Search", Message::SearchSubmit),
@@ -54,6 +57,11 @@ pub(in crate::app) fn search_view(app: &App) -> Element<'_, Message> {
 /// album's detail closes.
 pub(in crate::app) fn results_id() -> scrollable::Id {
     scrollable::Id::new("search-results")
+}
+
+/// The search field, addressed so the `/` shortcut can focus it.
+pub(in crate::app) fn search_input_id() -> text_input::Id {
+    text_input::Id::new("search-input")
 }
 
 /// Shown in place of results until searching can work, so the first thing a
@@ -102,6 +110,7 @@ fn offered_id_row(reference: &Reference) -> Element<'_, Message> {
 }
 
 fn results(app: &App) -> Element<'_, Message> {
+    let queued = app.queued();
     let mut results = column![].spacing(style::SPACE_MD);
     if let Some(reference) = &app.offered_id {
         results = results.push(offered_id_row(reference));
@@ -111,7 +120,7 @@ fn results(app: &App) -> Element<'_, Message> {
         let mut rows = column![].spacing(style::SPACE_XS);
         for a in &albums.items {
             let thumb = a.cover.as_ref().and_then(|u| app.thumbnails.get(u));
-            rows = rows.push(album_result_row(a, thumb));
+            rows = rows.push(album_result_row(a, thumb, queued.album(&a.id)));
         }
         results = results.push(results_card("Albums", albums, Kind::Albums, rows));
     }
@@ -120,7 +129,7 @@ fn results(app: &App) -> Element<'_, Message> {
         let mut rows = column![].spacing(style::SPACE_XS);
         for t in &tracks.items {
             let thumb = t.cover.as_ref().and_then(|u| app.thumbnails.get(u));
-            rows = rows.push(track_result_row(t, thumb));
+            rows = rows.push(track_result_row(t, thumb, queued.track(&t.id)));
         }
         results = results.push(results_card("Tracks", tracks, Kind::Tracks, rows));
     }
@@ -169,9 +178,16 @@ fn results_card<'a, T>(
 
 const THUMB_SIZE: f32 = 52.0;
 
-/// A result row: cover, a bold title over the artist, an optional Hi-Res
-/// badge, and an Add button. With `open`, the cover and title become one
-/// control, kept separate from Add so opening never enqueues.
+/// Fits the Hi-Res badge, reserved on every row so badges and Add buttons each
+/// line up whether or not a release is hi-res.
+const HIRES_SLOT_WIDTH: f32 = 64.0;
+/// Fits "Added ✓", so a result switching from Add doesn't shift its badge.
+const ADD_BUTTON_WIDTH: f32 = 76.0;
+
+/// A result row: cover, a bold title over the artist, the Hi-Res slot, and an
+/// Add button that reads "Added ✓" (disabled) while the result is queued. With
+/// `open`, the cover and title become one control, kept separate from Add so
+/// opening never enqueues.
 fn add_row<'a>(
     cover: Element<'a, Message>,
     title: &'a str,
@@ -179,6 +195,7 @@ fn add_row<'a>(
     hires: bool,
     reference: Reference,
     open: Option<Message>,
+    added: bool,
 ) -> Element<'a, Message> {
     let label = column![text(title).font(bold()), text(artist).size(style::TEXT_SM)].spacing(2);
     let lead = row![cover, label]
@@ -192,11 +209,20 @@ fn add_row<'a>(
         None => lead.width(Length::Fill).into(),
     };
 
-    let mut r = row![lead];
-    if hires {
-        r = r.push(quality_badge("Hi-Res"));
-    }
-    r.push(compact_button("Add").on_press(Message::Add(reference)))
+    let badge: Element<'a, Message> = if hires {
+        quality_badge("Hi-Res")
+    } else {
+        Space::with_width(Length::Shrink).into()
+    };
+    let slot = container(badge)
+        .width(Length::Fixed(HIRES_SLOT_WIDTH))
+        .align_x(iced::Alignment::End);
+    let add = if added {
+        compact_button("Added ✓")
+    } else {
+        compact_button("Add").on_press(Message::Add(reference))
+    };
+    row![lead, slot, add.width(Length::Fixed(ADD_BUTTON_WIDTH))]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center)
         .into()
@@ -206,6 +232,7 @@ fn add_row<'a>(
 fn track_result_row<'a>(
     track: &'a TrackResult,
     thumb: Option<&image::Handle>,
+    added: bool,
 ) -> Element<'a, Message> {
     add_row(
         cover(thumb, THUMB_SIZE),
@@ -214,6 +241,7 @@ fn track_result_row<'a>(
         track.hires,
         Reference::Track(track.id.clone()),
         None,
+        added,
     )
 }
 
@@ -221,6 +249,7 @@ fn track_result_row<'a>(
 fn album_result_row<'a>(
     album: &'a AlbumResult,
     thumb: Option<&image::Handle>,
+    added: bool,
 ) -> Element<'a, Message> {
     add_row(
         cover(thumb, THUMB_SIZE),
@@ -229,6 +258,7 @@ fn album_result_row<'a>(
         album.hires,
         Reference::Album(album.id.clone()),
         Some(Message::OpenAlbum(album.clone())),
+        added,
     )
 }
 
