@@ -14,6 +14,15 @@ pub enum Progress {
     Bytes { downloaded: u64, total: Option<u64> },
 }
 
+/// What [`stream_to_part`] did for the destination.
+#[derive(Debug)]
+pub enum Transfer {
+    /// The bytes are in a temp file, not yet at `dest`.
+    Downloaded(PartFile),
+    /// `dest` already existed, so nothing was fetched or written.
+    AlreadyPresent,
+}
+
 /// Fetch the raw bytes at `url` fully into memory (e.g. a small album cover
 /// thumbnail). Unauthenticated; builds its own short-lived client.
 pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
@@ -25,18 +34,21 @@ pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
     Ok(resp.bytes().await?.to_vec())
 }
 
-/// Stream `url` to `dest`, emitting [`Progress::Bytes`] events. The file is
-/// written incrementally — never fully buffered in memory.
-pub async fn stream_to_file(
+/// Stream `url` into a temp file beside `dest`, emitting [`Progress::Bytes`]
+/// events. The file is written incrementally — never fully buffered in memory —
+/// and handed back unpublished, so the caller can finish it (tag it) before
+/// [`PartFile::publish`] moves it to `dest`. Whatever appears at `dest` is then
+/// a finished file, which is what makes skipping an existing one safe.
+pub async fn stream_to_part(
     http: &reqwest::Client,
     url: &str,
     dest: &Path,
     progress: Option<&mpsc::Sender<Progress>>,
-) -> Result<()> {
+) -> Result<Transfer> {
     // Idempotency: if the destination already exists, the track was downloaded
     // on a previous run — don't fetch it again.
     if tokio::fs::try_exists(dest).await.unwrap_or(false) {
-        return Ok(());
+        return Ok(Transfer::AlreadyPresent);
     }
 
     if let Some(parent) = dest.parent() {
@@ -58,32 +70,38 @@ pub async fn stream_to_file(
     }
 
     let total = resp.content_length();
-    // Write to a temp file, then rename on success so partial files aren't left
-    // looking complete. The guard removes the partial file however the transfer
-    // ends — an error, or the future being dropped part-way when the batch is
-    // cancelled — so no orphaned `.part` is left behind. The name carries a
-    // process-unique sequence number so two jobs that render the same
-    // destination can never stream into the same temp file.
+    // Write to a temp file so partial files aren't left looking complete. The
+    // guard removes it however the transfer ends — an error, or the future
+    // being dropped part-way when the batch is cancelled — so no orphaned
+    // `.part` is left behind. The name carries a process-unique sequence number
+    // so two jobs that render the same destination can never stream into the
+    // same temp file.
     let tmp = PartFile::new(part_path(dest));
     stream_to_tmp(resp, tmp.path(), total, progress).await?;
-    tokio::fs::rename(tmp.path(), dest).await?;
-    tmp.disarm();
-    Ok(())
+    Ok(Transfer::Downloaded(tmp))
 }
 
-/// A `.partN` temp file that deletes itself unless [`PartFile::disarm`] is
-/// called. Cleanup has to happen on drop, not just on the error path: a
+/// A `.partN` temp file that deletes itself unless [`PartFile::publish`]
+/// succeeds. Cleanup has to happen on drop, not just on the error path: a
 /// cancelled batch drops the transfer future mid-stream, which never returns an
 /// error for an `Err` branch to clean up after.
-struct PartFile(Option<std::path::PathBuf>);
+#[derive(Debug)]
+pub struct PartFile(Option<std::path::PathBuf>);
 
 impl PartFile {
-    fn new(path: std::path::PathBuf) -> Self {
+    pub(crate) fn new(path: std::path::PathBuf) -> Self {
         Self(Some(path))
     }
 
-    fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         self.0.as_deref().expect("armed until disarmed")
+    }
+
+    /// Rename the finished file to `dest`. On failure the temp file is removed.
+    pub async fn publish(self, dest: &Path) -> Result<()> {
+        tokio::fs::rename(self.path(), dest).await?;
+        self.disarm();
+        Ok(())
     }
 
     /// Give up ownership of the file — call once it has been renamed into place.
@@ -196,6 +214,7 @@ fn jitter_millis(max: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::Scratch;
 
     #[test]
     fn part_paths_for_the_same_dest_are_unique() {
@@ -203,22 +222,14 @@ mod tests {
         assert_ne!(part_path(dest), part_path(dest));
     }
 
-    /// A uniquely named scratch path under the OS temp dir.
-    fn scratch(tag: &str) -> std::path::PathBuf {
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        std::env::temp_dir().join(format!("qobuz-dl-test-{tag}-{n}"))
-    }
-
     #[test]
     fn part_file_is_removed_when_dropped() {
         // The cancellation path: the transfer future is dropped mid-stream and
         // never returns an error, so only `Drop` can clean up.
-        let path = scratch("drop");
-        std::fs::write(&path, b"partial").unwrap();
-        drop(PartFile::new(path.clone()));
+        let scratch = Scratch::new("drop.part0");
+        let path = scratch.path();
+        std::fs::write(path, b"partial").unwrap();
+        drop(PartFile::new(path.to_path_buf()));
         assert!(!path.exists(), "dropping an armed PartFile must delete it");
     }
 
@@ -226,14 +237,14 @@ mod tests {
     fn disarmed_part_file_is_left_alone() {
         // The success path: the file has already been renamed into place, so
         // the guard must not delete what is now the finished download.
-        let path = scratch("disarm");
-        std::fs::write(&path, b"complete").unwrap();
-        PartFile::new(path.clone()).disarm();
+        let scratch = Scratch::new("disarm.part0");
+        let path = scratch.path();
+        std::fs::write(path, b"complete").unwrap();
+        PartFile::new(path.to_path_buf()).disarm();
         assert!(
             path.exists(),
             "a disarmed PartFile must not delete anything"
         );
-        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]
@@ -268,20 +279,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publish_moves_the_part_to_dest() {
+        let part = Scratch::new("song.part0");
+        let dest = Scratch::new("song.flac");
+        std::fs::write(part.path(), b"complete").unwrap();
+
+        PartFile::new(part.path().to_path_buf())
+            .publish(dest.path())
+            .await
+            .unwrap();
+
+        assert!(!part.path().exists());
+        assert_eq!(std::fs::read(dest.path()).unwrap(), b"complete");
+    }
+
+    #[tokio::test]
     async fn skips_when_destination_exists() {
-        let dir = std::env::temp_dir().join("qobuz-dl-test-skip");
-        let _ = tokio::fs::create_dir_all(&dir).await;
-        let dest = dir.join("already-there.flac");
-        tokio::fs::write(&dest, b"existing").await.unwrap();
+        let dest = Scratch::new("already-there.flac");
+        tokio::fs::write(dest.path(), b"existing").await.unwrap();
 
         let http = reqwest::Client::new();
         // URL is never contacted because the destination already exists.
-        let r = stream_to_file(&http, "http://127.0.0.1:0/nope", &dest, None).await;
-        assert!(r.is_ok());
+        let r = stream_to_part(&http, "http://127.0.0.1:0/nope", dest.path(), None).await;
+        assert!(matches!(r, Ok(Transfer::AlreadyPresent)));
         // The pre-existing file is untouched.
-        assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"existing");
-
-        let _ = tokio::fs::remove_file(&dest).await;
+        assert_eq!(tokio::fs::read(dest.path()).await.unwrap(), b"existing");
     }
 
     #[test]

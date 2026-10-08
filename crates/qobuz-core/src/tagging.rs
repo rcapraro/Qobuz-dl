@@ -30,9 +30,11 @@ fn tag_type_for(path: &Path) -> TagType {
     }
 }
 
-/// Write tags (and optionally embed cover art) to `path`.
-pub fn write_tags(path: &Path, tags: &TrackTags<'_>) -> Result<()> {
-    let mut tag = Tag::new(tag_type_for(path));
+/// Write tags (and optionally embed cover art) to `path`, in the tag container
+/// `dest`'s extension calls for. They differ while the download is still a
+/// `.partN` temp file, whose extension says nothing about its format.
+pub fn write_tags(path: &Path, dest: &Path, tags: &TrackTags<'_>) -> Result<()> {
+    let mut tag = Tag::new(tag_type_for(dest));
 
     tag.set_title(tags.track.title.clone());
     tag.set_artist(tags.track.artist_name().to_string());
@@ -101,6 +103,35 @@ mod tests {
         assert_eq!(tag_type_for(Path::new("a.flac")), TagType::VorbisComments);
         assert_eq!(tag_type_for(Path::new("a.m4a")), TagType::Mp4Ilst);
         assert_eq!(tag_type_for(Path::new("a.mp3")), TagType::Id3v2);
+    }
+
+    #[test]
+    fn part_file_gets_the_destination_container() {
+        use crate::test_support::{write_minimal_flac, Scratch};
+        use lofty::file::TaggedFileExt;
+
+        let part = Scratch::new("song.part0");
+        write_minimal_flac(part.path());
+        let track: Track =
+            serde_json::from_value(serde_json::json!({"id": 1, "title": "t"})).unwrap();
+        let album: Album =
+            serde_json::from_value(serde_json::json!({"id": "a", "title": "a"})).unwrap();
+        let tags = TrackTags {
+            track: &track,
+            album: &album,
+            cover: None,
+        };
+
+        write_tags(part.path(), Path::new("song.flac"), &tags).unwrap();
+
+        let tagged = lofty::probe::Probe::open(part.path())
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        assert!(tagged.tag(TagType::VorbisComments).is_some());
+        assert!(tagged.tag(TagType::Id3v2).is_none());
     }
 
     #[test]

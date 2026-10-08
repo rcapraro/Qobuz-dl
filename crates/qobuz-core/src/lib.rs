@@ -18,6 +18,8 @@ pub mod signature;
 pub mod tagging;
 pub mod template;
 
+#[cfg(test)]
+mod test_support;
 mod util;
 
 pub use bootstrap::{discover_app_credentials, AppCredentials};

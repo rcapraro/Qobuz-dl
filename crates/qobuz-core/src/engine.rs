@@ -5,14 +5,14 @@
 use crate::catalog::Reference;
 use crate::client::QobuzClient;
 use crate::config::Config;
-use crate::download::{self, Progress};
+use crate::download::{self, PartFile, Progress, Transfer};
 use crate::error::{Error, Result};
 use crate::models::{Album, Playlist, Track};
 use crate::quality::Quality;
 use crate::tagging::{self, TrackTags};
 use crate::template::{self, TemplateContext};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -236,38 +236,54 @@ async fn download_one(
     cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
     cancel: &CancellationToken,
 ) -> Result<(PathBuf, String)> {
-    let track_id = job.track.id;
-
-    let (file, dest, delivered_quality) =
+    let (file, dest, delivered_quality, transfer) =
         download_with_progress(client, config, job, events, cancel).await?;
+    // An already-present file is left untouched, so re-queuing a downloaded
+    // album neither bumps its modification times nor overwrites tags the user
+    // edited.
+    if let Transfer::Downloaded(part) = transfer {
+        finish_download(part, &dest, config, job, events, cover_cache, cancel).await?;
+    }
+    Ok((dest, describe_delivered(&file, delivered_quality)))
+}
 
-    // Fetch cover art (cached per album) if embedding is enabled. The track's
-    // bytes are already on disk at this point, so cancelling here would only
-    // strand an untagged file — instead the track is allowed to finish, and
-    // cancellation just gives up on the *artwork*. Without that race a cancel
-    // could sit on a slow cover host for the full 30s `fetch_bytes` timeout,
-    // times `concurrency` tracks, before the batch stopped.
-    let _ = events.send(JobEvent::Tagging { track_id }).await;
+/// Tag the downloaded temp file, then move it to `dest`. Tagging before the
+/// move means a file at `dest` is always a finished one; on any error or
+/// cancel, dropping `part` deletes it and `dest` is never created, so a retry
+/// downloads the track again.
+async fn finish_download(
+    part: PartFile,
+    dest: &Path,
+    config: &Config,
+    job: &Job,
+    events: &mpsc::Sender<JobEvent>,
+    cover_cache: &Mutex<HashMap<String, Option<Vec<u8>>>>,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    let _ = events
+        .send(JobEvent::Tagging {
+            track_id: job.track.id,
+        })
+        .await;
+    // Raced against cancel so a slow cover host can't hold a cancel for the
+    // full 30s `fetch_bytes` timeout, times `concurrency` tracks.
     let cover = if config.embed_art {
         tokio::select! {
             biased;
             c = fetch_cover(&job.album, cover_cache) => c,
-            _ = cancel.cancelled() => None,
+            _ = cancel.cancelled() => return Err(Error::Cancelled),
         }
     } else {
         None
     };
 
-    // Write tags + embed art.
     let tags = TrackTags {
         track: &job.track,
         album: &job.album,
         cover: cover.as_deref(),
     };
-    tagging::write_tags(&dest, &tags)?;
-
-    let delivered = describe_delivered(&file, delivered_quality);
-    Ok((dest, delivered))
+    tagging::write_tags(part.path(), dest, &tags)?;
+    part.publish(dest).await
 }
 
 /// Sign, stream, and retry: fetch a fresh signed URL and stream it to disk as
@@ -280,7 +296,7 @@ async fn download_with_progress(
     job: &Job,
     events: &mpsc::Sender<JobEvent>,
     cancel: &CancellationToken,
-) -> Result<(crate::models::FileUrl, PathBuf, Quality)> {
+) -> Result<(crate::models::FileUrl, PathBuf, Quality, Transfer)> {
     let track_id = job.track.id;
     let track_id_str = track_id.to_string();
     let track_id_str = &track_id_str;
@@ -305,16 +321,7 @@ async fn download_with_progress(
     // never has to wait out a retry delay (or a long server `Retry-After`).
     // Losing the race just drops that future; the temp file's drop guard in
     // `download` cleans up the partial `.part`.
-    //
-    // `biased` polls the download *first* on purpose. Its last step renames the
-    // temp file into place, and that side effect lands on the blocking pool
-    // before the future reports ready — so letting cancel win a tie would
-    // discard a download that is already sitting complete at `dest`, leaving an
-    // untagged file the caller was told never finished. Cancellation is still
-    // prompt: whenever the download isn't ready, this branch returns pending
-    // and the cancel branch is polled immediately after.
     let result = tokio::select! {
-        biased;
         r = download::with_retry(MAX_ATTEMPTS, || {
         let tx = tx.clone();
         async move {
@@ -326,8 +333,9 @@ async fn download_with_progress(
                 .unwrap_or(config.quality);
             let ext = delivered_quality.extension();
             let dest = build_path(config, job, &file, ext);
-            download::stream_to_file(client.http(), &url, &dest, Some(&tx)).await?;
-            Ok::<_, Error>((file, dest, delivered_quality))
+            let transfer =
+                download::stream_to_part(client.http(), &url, &dest, Some(&tx)).await?;
+            Ok::<_, Error>((file, dest, delivered_quality, transfer))
         }
         }) => r,
         _ = cancel.cancelled() => Err(Error::Cancelled),
@@ -423,6 +431,7 @@ fn describe_delivered(file: &crate::models::FileUrl, quality: Quality) -> String
 mod tests {
     use super::*;
     use crate::models::{FileUrl, Image};
+    use crate::test_support::{write_minimal_flac, Scratch};
 
     fn sample_job() -> Job {
         let album = Album {
@@ -502,6 +511,83 @@ mod tests {
         }
         cancelled.sort_unstable();
         assert_eq!(cancelled, vec![1, 2]);
+    }
+
+    /// Run `finish_download` on `part` for `sample_job()`, with no cover cached.
+    async fn finish_part(
+        part: &Scratch,
+        dest: &Scratch,
+        embed_art: bool,
+        cancel: &CancellationToken,
+    ) -> (Result<()>, mpsc::Receiver<JobEvent>) {
+        let config = Config {
+            embed_art,
+            ..Config::default()
+        };
+        let (tx, rx) = mpsc::channel(4);
+        let r = finish_download(
+            PartFile::new(part.path().to_path_buf()),
+            dest.path(),
+            &config,
+            &sample_job(),
+            &tx,
+            &Mutex::new(HashMap::new()),
+            cancel,
+        )
+        .await;
+        (r, rx)
+    }
+
+    #[tokio::test]
+    async fn finished_download_is_tagged_then_published() {
+        use lofty::file::TaggedFileExt;
+        use lofty::tag::Accessor;
+
+        let part = Scratch::new("so-what.part0");
+        let dest = Scratch::new("so-what.flac");
+        write_minimal_flac(part.path());
+
+        let (r, mut rx) = finish_part(&part, &dest, false, &CancellationToken::new()).await;
+
+        r.unwrap();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(JobEvent::Tagging { track_id: 42 })
+        ));
+        assert!(!part.path().exists());
+        let tagged = lofty::read_from_path(dest.path()).unwrap();
+        let title = tagged
+            .primary_tag()
+            .and_then(|t| t.title().map(|s| s.into_owned()));
+        assert_eq!(title.as_deref(), Some("So What"));
+    }
+
+    #[tokio::test]
+    async fn tagging_failure_leaves_no_file() {
+        let part = Scratch::new("garbage.part0");
+        let dest = Scratch::new("garbage.flac");
+        std::fs::write(part.path(), b"not audio").unwrap();
+
+        let (r, _rx) = finish_part(&part, &dest, false, &CancellationToken::new()).await;
+
+        assert!(r.is_err());
+        assert!(!part.path().exists());
+        assert!(!dest.path().exists());
+    }
+
+    #[tokio::test]
+    async fn cancel_during_cover_fetch_leaves_no_file() {
+        let part = Scratch::new("cancelled.part0");
+        let dest = Scratch::new("cancelled.flac");
+        write_minimal_flac(part.path());
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let (r, _rx) = finish_part(&part, &dest, true, &cancel).await;
+
+        assert!(matches!(r, Err(Error::Cancelled)));
+        assert!(!part.path().exists());
+        assert!(!dest.path().exists());
     }
 
     #[test]
