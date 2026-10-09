@@ -8,8 +8,8 @@ use super::super::{App, Message};
 use super::{bold, cover, hidden_button, one_line, section, slot};
 use crate::style::{self, compact_button, field_input, fill_button, labeled_row, styled_button};
 use iced::widget::{
-    checkbox, column, combo_box, container, pick_list, row, scrollable, space, text, text_input,
-    TextInput,
+    checkbox, column, combo_box, container, pick_list, row, scrollable, space, stack, table, text,
+    text_input, Container, TextInput,
 };
 use iced::{Element, Length};
 use iced_aw::widget::badge::Badge;
@@ -31,11 +31,10 @@ const APPLY_WIDTH: f32 = 104.0;
 /// Space the form keeps clear of the scrollbar, beyond its gutter, so the
 /// row-end buttons don't sit against it.
 const RIGHT_MARGIN: f32 = style::SCROLLBAR_GUTTER + style::SPACE_LG;
-/// Fits a "100 %" badge.
-const MATCH_WIDTH: f32 = 84.0;
-/// Fits a two-letter country code, or "XW" for worldwide, under "Country".
-const COUNTRY_WIDTH: f32 = 76.0;
-const USE_WIDTH: f32 = 64.0;
+/// The release list's header band, drawn under the table since the table has
+/// no style for it: a heading's line, at iced's default 1.3 line height, with
+/// the table's `SPACE_XS` row padding above and below.
+const HEAD_HEIGHT: f32 = style::TEXT_SM * 1.3 + 2.0 * style::SPACE_XS;
 /// From here a release is shown as a strong match.
 const STRONG_MATCH: u8 = 80;
 /// Below this a release is shown as a poor match.
@@ -354,8 +353,8 @@ fn track_list(editor: &TagEditor) -> Element<'_, Message> {
     let head = row![
         column_label("Disc", Length::Fixed(NUMBER_WIDTH)),
         column_label("#", Length::Fixed(NUMBER_WIDTH)),
-        column_label("Title", Length::Fill),
-        column_label("Artist", Length::Fill),
+        column_label("Title", Length::FillPortion(3)),
+        column_label("Artist", Length::FillPortion(2)),
         column_label("", Length::Fixed(TOGGLE_WIDTH)),
     ]
     .spacing(style::SPACE_SM);
@@ -378,18 +377,47 @@ fn track_list(editor: &TagEditor) -> Element<'_, Message> {
 /// The releases a MusicBrainz lookup found, best match first, in place of the
 /// track list until one is chosen or the list is cancelled.
 fn release_picker(candidates: &[Candidate]) -> Element<'_, Message> {
-    let head = row![
-        column_label("Match", Length::Fixed(MATCH_WIDTH)),
-        column_label("Title", Length::FillPortion(3)),
-        column_label("Date", Length::Fixed(DATE_WIDTH)),
-        column_label("Country", Length::Fixed(COUNTRY_WIDTH)),
-        column_label("Label", Length::FillPortion(2)),
-        column_label("Format", Length::FillPortion(2)),
-        column_label("Tracks", Length::Fixed(NUMBER_WIDTH)),
-        column_label("", Length::Fixed(USE_WIDTH)),
+    let heading = |label| inset(text(label).size(style::TEXT_SM));
+    let columns = [
+        table::column(heading("Match"), |(_, c): (usize, &Candidate)| {
+            inset(confidence_badge(c.confidence))
+        }),
+        table::column(heading("Title"), |(_, c): (usize, &Candidate)| {
+            long_cell(c.release.title.as_str())
+        })
+        .width(Length::FillPortion(3)),
+        table::column(heading("Date"), |(_, c): (usize, &Candidate)| {
+            inset(text(or_dash(c.release.date.as_deref())))
+        }),
+        table::column(heading("Country"), |(_, c): (usize, &Candidate)| {
+            inset(text(or_dash(c.release.country.as_deref())))
+        }),
+        table::column(heading("Label"), |(_, c): (usize, &Candidate)| {
+            long_cell(or_dash(c.release.label()))
+        })
+        .width(Length::FillPortion(2)),
+        table::column(heading("Format"), |(_, c): (usize, &Candidate)| {
+            long_cell(or_dash(Some(&c.release.formats())).to_owned())
+        })
+        .width(Length::FillPortion(1)),
+        table::column(heading("Tracks"), |(_, c): (usize, &Candidate)| {
+            inset(text(c.release.total_tracks().to_string()))
+        }),
+        table::column(heading(""), |(index, _): (usize, &Candidate)| {
+            compact_button("Use").on_press(Message::ChooseRelease(index))
+        }),
     ]
-    .spacing(style::SPACE_SM);
-    let mut list = column![
+    .map(|column| column.align_y(iced::Alignment::Center));
+    let releases = table(columns, candidates.iter().enumerate())
+        .padding_x(style::SPACE_SM / 2.0)
+        .padding_y(style::SPACE_XS)
+        .separator(0.0);
+    let band = container(space::horizontal())
+        .width(Length::Fill)
+        .height(Length::Fixed(HEAD_HEIGHT))
+        .style(style::table_head);
+
+    column![
         row![
             section("MusicBrainz releases"),
             space::horizontal(),
@@ -399,55 +427,26 @@ fn release_picker(candidates: &[Candidate]) -> Element<'_, Message> {
         text("Ranked by how well each release matches your files.")
             .size(style::TEXT_SM)
             .style(style::muted_text),
-        container(head)
-            .style(style::table_head)
-            .padding([style::SPACE_XS, 0.0])
-    ]
-    .spacing(style::SPACE_SM);
-    for (index, candidate) in candidates.iter().enumerate() {
-        list = list.push(release_row(index, candidate));
-    }
-    list.into()
-}
-
-fn release_row(index: usize, candidate: &Candidate) -> Element<'_, Message> {
-    let release = &candidate.release;
-    let cell = |value: String, width: Length| {
-        container(text(value))
-            .width(width)
-            .padding([0.0, style::INPUT_PADDING + 1.0])
-    };
-    // Title, label and format can run long: kept on one line, so every row
-    // is a line tall, with the whole value on hover.
-    let long_cell = |value: String, width: Length| {
-        container(one_line(text(value.clone()), value))
-            .width(width)
-            .padding([0.0, style::INPUT_PADDING + 1.0])
-    };
-    let or_dash = |value: Option<&str>| value.filter(|v| !v.is_empty()).unwrap_or("–").to_owned();
-    row![
-        container(confidence_badge(candidate.confidence))
-            .width(Length::Fixed(MATCH_WIDTH))
-            .padding([0.0, style::INPUT_PADDING + 1.0]),
-        long_cell(release.title.clone(), Length::FillPortion(3)),
-        cell(or_dash(release.date.as_deref()), Length::Fixed(DATE_WIDTH)),
-        cell(
-            or_dash(release.country.as_deref()),
-            Length::Fixed(COUNTRY_WIDTH)
-        ),
-        long_cell(or_dash(release.label()), Length::FillPortion(2)),
-        long_cell(or_dash(Some(&release.formats())), Length::FillPortion(2)),
-        cell(
-            release.total_tracks().to_string(),
-            Length::Fixed(NUMBER_WIDTH)
-        ),
-        compact_button("Use")
-            .width(Length::Fixed(USE_WIDTH))
-            .on_press(Message::ChooseRelease(index)),
+        stack![releases].push_under(band),
     ]
     .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center)
     .into()
+}
+
+/// A cell or column heading, its text inset like an input's, so headings sit
+/// right above their values.
+fn inset<'a>(content: impl Into<Element<'a, Message>>) -> Container<'a, Message> {
+    container(content).padding([0.0, style::INPUT_PADDING + 1.0])
+}
+
+/// A release value that can run long (title, label, format), kept on one line
+/// so every row is a line tall, with the whole value on hover.
+fn long_cell<'a>(value: impl text::IntoFragment<'a> + Clone) -> Container<'a, Message> {
+    inset(one_line(text(value.clone()), value))
+}
+
+fn or_dash(value: Option<&str>) -> &str {
+    value.filter(|v| !v.is_empty()).unwrap_or("–")
 }
 
 /// A release's match confidence, colored by how far it can be trusted.
@@ -472,10 +471,7 @@ fn confidence_badge<'a>(confidence: u8) -> Element<'a, Message> {
 /// A column heading `width` wide, its text inset like an input's so it sits
 /// right above the values.
 fn column_label(label: &str, width: Length) -> Element<'_, Message> {
-    container(text(label).size(style::TEXT_SM))
-        .width(width)
-        .padding([0.0, style::INPUT_PADDING + 1.0])
-        .into()
+    inset(text(label).size(style::TEXT_SM)).width(width).into()
 }
 
 fn track_row<'a>(editor: &'a TagEditor, track: &'a EditorTrack) -> Element<'a, Message> {
@@ -484,8 +480,8 @@ fn track_row<'a>(editor: &'a TagEditor, track: &'a EditorTrack) -> Element<'a, M
     row![
         track_input(track, Field::DiscNumber).width(Length::Fixed(NUMBER_WIDTH)),
         track_input(track, Field::TrackNumber).width(Length::Fixed(NUMBER_WIDTH)),
-        track_input(track, Field::Title).width(Length::Fill),
-        track_input(track, Field::Artist).width(Length::Fill),
+        track_input(track, Field::Title).width(Length::FillPortion(3)),
+        track_input(track, Field::Artist).width(Length::FillPortion(2)),
         compact_button(if expanded { "Less ▲" } else { "More ▼" })
             .width(Length::Fixed(TOGGLE_WIDTH))
             .on_press(Message::Editor(Edit::ToggleExpanded(id))),
