@@ -143,32 +143,38 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         );
     }
 
-    let mut head = row![
-        compact_button(if collapsed { "▶" } else { "▼" })
-            .on_press(Message::ToggleGroup(album.id.clone())),
-        cover(thumb, GROUP_COVER_SIZE),
-        column![
-            text(&album.title).font(bold()),
-            text(album.artist_name())
-                .size(style::TEXT_SM)
-                .style(style::muted_text),
-        ]
-        .spacing(2)
-        .width(Length::Fill),
-    ]
-    .spacing(style::SPACE_SM)
-    .align_y(iced::Alignment::Center);
+    let mut title_line = row![text(&album.title).font(bold()).width(Length::Fill)]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center);
     if let Some(quality) = quality {
-        head = head.push(quality_badge(quality));
+        title_line = title_line.push(quality_badge(quality));
     }
-    head = head.push(count);
+    title_line = title_line.push(count);
 
-    head = head.push(
+    // The actions sit on the artist line so they never squeeze the title.
+    let artist_line = row![
+        text(album.artist_name())
+            .size(style::TEXT_SM)
+            .style(style::muted_text)
+            .width(Length::Fill),
         match app.rename.as_ref().filter(|r| r.album_id == album.id) {
             Some(rename) => rename_field(&rename.name),
             None => group_actions(app, &group),
         },
-    );
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center);
+
+    let head = row![
+        compact_button(if collapsed { "▶" } else { "▼" })
+            .on_press(Message::ToggleGroup(album.id.clone())),
+        cover(thumb, GROUP_COVER_SIZE),
+        column![title_line, artist_line]
+            .spacing(style::SPACE_SM)
+            .width(Length::Fill),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center);
 
     let mut body = column![
         head,
@@ -195,7 +201,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         .into()
 }
 
-/// Fits a typical `Artist - Album (Year)` name beside the group's title.
+/// Fits a typical `Artist - Album (Year)` name beside the group's artist.
 const RENAME_FIELD_WIDTH: f32 = 320.0;
 
 /// A group header's actions on its settled tracks and their folder.

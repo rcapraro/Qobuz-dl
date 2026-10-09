@@ -73,14 +73,6 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
         None if has_edits => "Unsaved changes".to_owned(),
         None => String::new(),
     };
-    let info = column![
-        text(&editor.title).size(style::TEXT_HEADLINE).font(bold()),
-        text(&editor.artist).size(style::TEXT_SECTION),
-        text(progress).size(style::TEXT_SM).style(style::muted_text),
-    ]
-    .spacing(style::SPACE_XS)
-    .width(Length::Fill);
-
     let close = if has_edits {
         "Discard changes"
     } else {
@@ -100,8 +92,25 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
     ]
     .spacing(style::SPACE_SM);
 
+    // The actions sit on the status line so they never squeeze the title.
+    let info = column![
+        text(&editor.title).size(style::TEXT_HEADLINE).font(bold()),
+        text(&editor.artist).size(style::TEXT_SECTION),
+        row![
+            text(progress)
+                .size(style::TEXT_SM)
+                .style(style::muted_text)
+                .width(Length::Fill),
+            actions,
+        ]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center),
+    ]
+    .spacing(style::SPACE_XS)
+    .width(Length::Fill);
+
     container(
-        row![cover(editor.preview.as_ref(), COVER_SIZE), info, actions]
+        row![cover(editor.preview.as_ref(), COVER_SIZE), info]
             .spacing(style::SPACE_LG)
             .align_y(iced::Alignment::Center),
     )
