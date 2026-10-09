@@ -3,8 +3,8 @@
 
 use super::super::tag_editor::{hint, invalid, label, Edit, EditorTrack, Resize, TagEditor};
 use super::super::{App, Message};
-use super::{bold, cover, section};
-use crate::style::{self, compact_button, field_input, labeled_row, styled_button};
+use super::{bold, cover, hidden_button, section, slot};
+use crate::style::{self, compact_button, field_input, fill_button, labeled_row, styled_button};
 use iced::widget::{
     button, checkbox, column, combo_box, container, pick_list, row, scrollable, text, text_input,
     TextInput,
@@ -73,20 +73,22 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
         None if has_edits => "Unsaved changes".to_owned(),
         None => String::new(),
     };
-    let close = if has_edits {
-        "Discard changes"
-    } else {
-        "Close"
-    };
+    const DISCARD: &str = "Discard changes";
+    let close = if has_edits { DISCARD } else { "Close" };
+    // Sized by the longer label, so Reset to Qobuz stays put when Close
+    // becomes Discard changes.
+    let close_slot = slot(
+        hidden_button(DISCARD),
+        fill_button(close)
+            .style(button::secondary)
+            .on_press_maybe((!saving).then_some(Message::CloseTagEditor)),
+    );
     let actions = row![
         styled_button("Reset to Qobuz")
             .style(button::secondary)
             .width(Length::Shrink)
             .on_press_maybe((!saving).then_some(Message::Editor(Edit::ResetToQobuz))),
-        styled_button(close)
-            .style(button::secondary)
-            .width(Length::Shrink)
-            .on_press_maybe((!saving).then_some(Message::CloseTagEditor)),
+        close_slot,
         styled_button("Save")
             .on_press_maybe((has_edits && app.save_ready(editor)).then_some(Message::SaveTags)),
     ]
@@ -238,6 +240,8 @@ fn flag_pick<'a>(
         move |choice| on_pick(choice == YesNo::Yes),
     )
     .placeholder("(mixed)")
+    .padding(style::INPUT_PADDING)
+    .text_size(style::TEXT_BODY)
     .width(Length::Fixed(FLAG_WIDTH))
     .into()
 }

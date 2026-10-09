@@ -9,7 +9,7 @@ pub(super) mod tag_editor;
 use super::status::{Status, StatusKind};
 use super::Message;
 use crate::style::{self, compact_button};
-use iced::widget::{container, image, row, text};
+use iced::widget::{container, image, row, stack, text};
 use iced::{Alignment, Color, Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 
@@ -99,10 +99,48 @@ pub(super) fn cover<'a>(thumb: Option<&image::Handle>, size: f32) -> Element<'a,
 /// A small audio-quality chip ("Hi-Res", a delivered format), styled like the
 /// queue's status badges but in the quality accent.
 pub(super) fn quality_badge<'a>(label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    Badge::new(text(label).size(style::TEXT_SM))
-        .style(|theme, _status| {
-            let a = style::accents(theme);
-            style::badge(a.quality(), a.on_accent)
+    Badge::new(
+        text(label)
+            .size(style::TEXT_SM)
+            .wrapping(text::Wrapping::None),
+    )
+    .style(|theme, _status| {
+        let a = style::accents(theme);
+        style::badge(a.quality(), a.on_accent)
+    })
+    .into()
+}
+
+/// A slot sized by `sample`, which is never seen, with `content` laid over it
+/// at its end. The slot keeps its size as `content` changes, so whatever sits
+/// beside it doesn't move. `sample` must be at least as large as `content`.
+pub(super) fn slot<'a>(
+    sample: impl Into<Element<'a, Message>>,
+    content: impl Into<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    stack![
+        sample.into(),
+        container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::End)
+            .align_y(Alignment::Center),
+    ]
+    // Shrink, or the stack takes on the content's Fill and stops sizing by the
+    // sample.
+    .width(Length::Shrink)
+    .height(Length::Shrink)
+    .into()
+}
+
+/// A [`style::styled_button`] sized to `label` and drawn fully transparent, to
+/// size a [`slot`] for a button whose label changes.
+pub(super) fn hidden_button(label: &str) -> Element<'_, Message> {
+    style::styled_button(label)
+        .width(Length::Shrink)
+        .style(|_theme, _status| iced::widget::button::Style {
+            text_color: Color::TRANSPARENT,
+            ..iced::widget::button::Style::default()
         })
         .into()
 }

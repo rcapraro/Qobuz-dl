@@ -3,10 +3,13 @@
 use super::super::album::guest_performer;
 use super::super::tasks::thumbnail;
 use super::super::{startable, App, EditorSlot, ItemStatus, Message, QueueItem};
-use super::{bold, cover, gutter_padding, quality_badge, tag_editor};
-use crate::style::{self, compact_button, field_input, secondary_button, styled_button};
+use super::{bold, cover, gutter_padding, hidden_button, quality_badge, slot, tag_editor};
+use crate::style::{
+    self, compact_button, field_input, fill_button, secondary_button, styled_button,
+};
+use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
-use iced::{Element, Font, Length};
+use iced::{Color, Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 use qobuz_core::engine::Job;
 use qobuz_core::models::Album;
@@ -26,7 +29,7 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
             .into();
     }
 
-    // Nothing to count, nothing to start, nothing to clear: a "0/0 complete"
+    // Nothing to count, nothing to start, nothing to clear: a "0 / 0 complete"
     // label over an empty bar reads as broken rather than as empty.
     if app.queue.is_empty() {
         return empty_state();
@@ -62,9 +65,12 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
         .filter(|it| matches!(it.status, ItemStatus::Error(_)))
         .count();
 
+    // Button height even with no buttons, as while tags are edited, so the
+    // editor opens without the count above it moving.
     let mut header =
-        row![text(format!("{done}/{} complete", app.queue.len())).width(Length::Fill),]
+        row![text(format!("{done} / {} complete", app.queue.len())).width(Length::Fill),]
             .spacing(style::SPACE_SM)
+            .height(Length::Fixed(style::CONTROL_HEIGHT))
             .align_y(iced::Alignment::Center);
 
     if failed > 0 && !app.downloading && !editing {
@@ -100,14 +106,17 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
     // without it the button (and with it the "Downloading…" indicator) would
     // blink out before the batch ends.
     if app.downloading || startable(&app.queue) {
-        header = header.push(
-            styled_button(if app.downloading {
+        const START: &str = "Start downloads";
+        // Sized by the longer label: the fixed button width clipped both.
+        header = header.push(slot(
+            hidden_button(START),
+            fill_button(if app.downloading {
                 "Downloading…"
             } else {
-                "Start downloads"
+                START
             })
             .on_press_maybe((!app.downloading).then_some(Message::StartDownloads)),
-        );
+        ));
     }
 
     column![
@@ -120,6 +129,11 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
 }
 
 const GROUP_COVER_SIZE: f32 = 40.0;
+// The widest usual content of each fixed slot. A longer value, such as a tier
+// name the API fell back to, takes its own length instead.
+const QUALITY_SAMPLE: &str = "FLAC 24/176.4";
+const COUNT_SAMPLE: &str = "99 / 99 done · 9 failed";
+const STATUS_SAMPLE: &str = "Done · FLAC 24/176.4";
 
 /// One album's panel: a header summarising the group, its own progress bar,
 /// and, unless collapsed, the group's track rows.
@@ -130,26 +144,48 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     let collapsed = app.collapsed.contains(&album.id);
     let thumb = thumbnail(album.image.as_ref()).and_then(|url| app.thumbnails.get(&url));
 
-    let mut count = row![text(format!("{} / {} done", summary.done, summary.total))
+    let done = format!("{} / {} done", summary.done, summary.total);
+    let failed = (summary.failed > 0).then(|| format!(" · {} failed", summary.failed));
+    let count_sample = longer(
+        &format!("{done}{}", failed.as_deref().unwrap_or_default()),
+        COUNT_SAMPLE,
+    );
+    let mut count = row![text(done)
         .size(style::TEXT_SM)
+        .wrapping(Wrapping::None)
         .style(style::muted_text)];
-    if summary.failed > 0 {
+    if let Some(failed) = failed {
         count = count.push(
-            text(format!(" · {} failed", summary.failed))
+            text(failed)
                 .size(style::TEXT_SM)
+                .wrapping(Wrapping::None)
                 .style(|theme| text::Style {
                     color: Some(style::accents(theme).error()),
                 }),
         );
     }
 
-    let mut title_line = row![text(&album.title).font(bold()).width(Length::Fill)]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center);
-    if let Some(quality) = quality {
-        title_line = title_line.push(quality_badge(quality));
-    }
-    title_line = title_line.push(count);
+    // Both slots are reserved before the first track is done, so the title
+    // keeps its width and the header its height as the batch progresses.
+    let quality_slot = slot(
+        hidden_badge(longer(quality.unwrap_or_default(), QUALITY_SAMPLE), false),
+        match quality {
+            Some(quality) => quality_badge(quality),
+            None => Space::new(Length::Shrink, Length::Shrink).into(),
+        },
+    );
+    let title_line = row![
+        text(&album.title).font(bold()).width(Length::Fill),
+        quality_slot,
+        slot(
+            text(count_sample)
+                .size(style::TEXT_SM)
+                .color(Color::TRANSPARENT),
+            count
+        ),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center);
 
     // The actions sit on the artist line so they never squeeze the title.
     let artist_line = row![
@@ -207,7 +243,12 @@ const RENAME_FIELD_WIDTH: f32 = 320.0;
 /// A group header's actions on its settled tracks and their folder.
 fn group_actions<'a>(app: &'a App, group: &Group<'a>) -> Element<'a, Message> {
     let id = &group.album.id;
-    let mut actions = row![].spacing(style::SPACE_SM);
+    // The Rename folder field's height even while empty, so the header keeps
+    // its height when the first action appears or the field opens.
+    let mut actions = row![]
+        .spacing(style::SPACE_SM)
+        .height(Length::Fixed(style::CONTROL_HEIGHT))
+        .align_y(iced::Alignment::Center);
     if app.album_folder(id).is_some() {
         actions = actions
             .push(compact_button("Open folder").on_press(Message::OpenAlbumFolder(id.clone())));
@@ -239,8 +280,30 @@ fn rename_field(name: &str) -> Element<'_, Message> {
         compact_button("Cancel").on_press(Message::CancelRename),
     ]
     .spacing(style::SPACE_SM)
+    .height(Length::Fixed(style::CONTROL_HEIGHT))
     .align_y(iced::Alignment::Center)
     .into()
+}
+
+/// The longer of `value` and `sample`, by character count, for sizing a
+/// [`slot`] that must also fit an unusually long value.
+fn longer(value: &str, sample: &'static str) -> String {
+    if value.chars().count() > sample.chars().count() {
+        value.to_owned()
+    } else {
+        sample.to_owned()
+    }
+}
+
+/// A badge drawn fully transparent, to size a [`slot`] like a real one.
+fn hidden_badge<'a>(label: String, mono: bool) -> Element<'a, Message> {
+    let mut label = text(label).size(style::TEXT_SM).color(Color::TRANSPARENT);
+    if mono {
+        label = label.font(Font::MONOSPACE);
+    }
+    Badge::new(label)
+        .style(|_theme, _status| style::badge(Color::TRANSPARENT, Color::TRANSPARENT))
+        .into()
 }
 
 /// What the Queue screen shows before anything has been added to it.
@@ -392,8 +455,8 @@ fn group_quality<'a>(items: &[&'a QueueItem]) -> Option<&'a str> {
         .map(|(label, _)| label)
 }
 
-/// A track row: title, a quality badge only when the track was delivered
-/// differently from its album, its status, and a bar only while in progress.
+/// A track row: title, its status (with the delivered quality only when it
+/// differs from its album's), and a bar only while in progress.
 fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, Message> {
     // The badge label is derived from the same fraction the bar renders, so the
     // two can't drift apart.
@@ -403,35 +466,57 @@ fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, 
         // Pad to a constant width so the badge doesn't shift as digits change.
         ItemStatus::Downloading => format!("Downloading {:>3.0}%", fraction * 100.0),
         ItemStatus::Tagging => "Tagging".into(),
+        ItemStatus::Done(delivered) if Some(delivered.as_str()) != group_quality => {
+            format!("Done · {delivered}")
+        }
         ItemStatus::Done(_) => "Done".into(),
-        ItemStatus::Error(e) => format!("Failed: {e}"),
+        ItemStatus::Error(_) => "Failed".into(),
     };
 
     let pick = badge_palette(&it.status);
     // Monospace so the padded percentage keeps a constant width (the default
     // font's digits vary in width and shift the badge).
-    let badge = Badge::new(text(status_text).size(style::TEXT_SM).font(Font::MONOSPACE)).style(
-        move |theme, _status| {
-            let a = style::accents(theme);
-            let (bg, fg) = pick(&a);
-            style::badge(bg, fg)
-        },
-    );
+    let sample = hidden_badge(longer(&status_text, STATUS_SAMPLE), true);
+    let badge = Badge::new(
+        text(status_text)
+            .size(style::TEXT_SM)
+            .font(Font::MONOSPACE)
+            .wrapping(Wrapping::None),
+    )
+    .style(move |theme, _status| {
+        let a = style::accents(theme);
+        let (bg, fg) = pick(&a);
+        style::badge(bg, fg)
+    });
 
     let (title, guest) = row_label(&it.job);
-    let mut label = column![text(title)].spacing(2);
+    let mut first_line = row![text(title)]
+        .spacing(style::SPACE_SM)
+        .align_y(iced::Alignment::Center);
+    // Beside the title and cut at the row's end, so a failure neither makes
+    // its row taller nor squeezes the title.
+    if let ItemStatus::Error(reason) = &it.status {
+        first_line = first_line.push(
+            container(
+                text(format!("— {reason}"))
+                    .size(style::TEXT_SM)
+                    .wrapping(Wrapping::None)
+                    .style(|theme| text::Style {
+                        color: Some(style::accents(theme).error()),
+                    }),
+            )
+            .width(Length::Fill)
+            .clip(true),
+        );
+    }
+    let mut label = column![first_line].spacing(2);
     if let Some(guest) = guest {
         label = label.push(text(guest).size(style::TEXT_SM).style(style::muted_text));
     }
-    let mut top = row![label.width(Length::Fill)]
+    // A fixed slot, so the title keeps its width as the status changes.
+    let top = row![label.width(Length::Fill), slot(sample, badge)]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
-    if let ItemStatus::Done(delivered) = &it.status {
-        if Some(delivered.as_str()) != group_quality {
-            top = top.push(quality_badge(delivered.as_str()));
-        }
-    }
-    top = top.push(badge);
 
     let bar_slot = Length::Fixed(style::PROGRESS_HEIGHT);
     // An empty slot of the bar's height keeps every row the same height, so the

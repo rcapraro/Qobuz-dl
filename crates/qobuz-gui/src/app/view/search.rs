@@ -197,7 +197,11 @@ fn add_row<'a>(
     open: Option<Message>,
     added: bool,
 ) -> Element<'a, Message> {
-    let label = column![text(title).font(bold()), text(artist).size(style::TEXT_SM)].spacing(2);
+    let label = column![
+        text(title).font(bold()),
+        text(artist).size(style::TEXT_SM).style(style::muted_text),
+    ]
+    .spacing(2);
     let lead = row![cover, label]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);

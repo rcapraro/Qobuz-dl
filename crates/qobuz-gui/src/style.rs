@@ -66,7 +66,19 @@ pub fn primary_button(theme: &Theme, status: button::Status) -> button::Style {
 /// iced has no minimum width, so a label longer than `BUTTON_MIN_WIDTH` needs
 /// the caller to override with `.width(Length::Shrink)` to avoid clipping.
 pub fn styled_button<'a, M>(label: impl text::IntoFragment<'a>) -> Button<'a, M> {
-    button(text(label).center())
+    sized_button(text(label).center())
+}
+
+/// A [`styled_button`] that fills the width it is given, its label centered
+/// across it, for a button sized by its container rather than its label. A
+/// filling button doesn't stretch a label that only shrinks to fit, which
+/// would leave it at the left.
+pub fn fill_button<'a, M>(label: impl text::IntoFragment<'a>) -> Button<'a, M> {
+    sized_button(text(label).center().width(Length::Fill)).width(Length::Fill)
+}
+
+fn sized_button<'a, M>(label: Text<'a>) -> Button<'a, M> {
+    button(label)
         .padding([SPACE_XS, SPACE_MD])
         .width(Length::Fixed(BUTTON_MIN_WIDTH))
         .height(Length::Fixed(CONTROL_HEIGHT))

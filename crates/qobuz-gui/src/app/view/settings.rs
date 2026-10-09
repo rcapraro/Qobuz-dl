@@ -28,7 +28,7 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                 field_input("app_id", &app.config.app_id)
                     .on_input(Message::AppIdChanged)
                     .width(Length::Fixed(APP_ID_WIDTH)),
-                text("App secret:"),
+                text("App secret:").size(style::TEXT_BODY),
                 field_input("app_secret", &app.config.app_secret)
                     .secure(true)
                     .on_input(Message::AppSecretChanged)
@@ -91,7 +91,9 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
     let dir_row = labeled_row(
         "Download to:",
         row![
-            text(app.config.download_dir.display().to_string()).width(Length::Fill),
+            text(app.config.download_dir.display().to_string())
+                .size(style::TEXT_BODY)
+                .width(Length::Fill),
             secondary_button("Choose…", Message::PickDir),
             secondary_button("Open", Message::OpenDownloadDir),
         ]
@@ -106,22 +108,29 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                 Quality::ALL.to_vec(),
                 Some(app.config.quality),
                 Message::QualitySelected,
-            ),
-            text("Concurrency:"),
+            )
+            .padding(style::INPUT_PADDING)
+            .text_size(style::TEXT_BODY),
+            text("Concurrency:").size(style::TEXT_BODY),
             NumberInput::new(
                 &app.config.concurrency,
                 1..=MAX_CONCURRENCY,
                 Message::ConcurrencyChanged,
             )
             .step(1)
+            .size(style::TEXT_BODY)
+            .padding(style::INPUT_PADDING)
             .width(Length::Fixed(CONCURRENCY_WIDTH)),
-            text("Cover art:"),
+            text("Cover art:").size(style::TEXT_BODY),
             pick_list(
                 CoverArt::all(),
                 Some(CoverArt::of(&app.config)),
                 Message::CoverArtSelected,
-            ),
+            )
+            .padding(style::INPUT_PADDING)
+            .text_size(style::TEXT_BODY),
             checkbox("Notify when done", app.config.notify_on_finish)
+                .text_size(style::TEXT_BODY)
                 .on_toggle(Message::NotifyToggled),
         ]
         .spacing(style::SPACE_MD)
