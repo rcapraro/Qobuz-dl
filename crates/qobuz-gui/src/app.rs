@@ -1405,14 +1405,23 @@ impl App {
     fn group_editable<'a>(&self, items: impl IntoIterator<Item = &'a QueueItem>) -> bool {
         let mut any_done = false;
         for it in items {
-            let in_batch = self.downloading && self.batch.contains(&it.track_id);
-            match it.status {
-                ItemStatus::Done(_) if !in_batch => any_done = true,
-                ItemStatus::Error(_) if !in_batch => {}
-                _ => return false,
+            if self.in_progress(it) {
+                return false;
             }
+            any_done |= matches!(it.status, ItemStatus::Done(_));
         }
         any_done
+    }
+
+    /// Whether any of an album's tracks is still queued, downloading or
+    /// tagging, or in the running batch: the albums listed beside the editor.
+    fn group_in_progress<'a>(&self, items: impl IntoIterator<Item = &'a QueueItem>) -> bool {
+        items.into_iter().any(|it| self.in_progress(it))
+    }
+
+    fn in_progress(&self, it: &QueueItem) -> bool {
+        let settled = matches!(it.status, ItemStatus::Done(_) | ItemStatus::Error(_));
+        !settled || (self.downloading && self.batch.contains(&it.track_id))
     }
 
     fn open_tag_editor(&mut self, album_id: String) -> Task<Message> {
@@ -2855,6 +2864,27 @@ mod tests {
         app.downloading = true;
         app.batch = vec![1];
         assert!(!app.tags_editable("a"));
+    }
+
+    #[test]
+    fn a_group_is_in_progress_until_settled_outside_the_batch() {
+        let mut app = app();
+        let in_progress = |app: &App, status: ItemStatus| {
+            let items = [queued(1, "a", status)];
+            app.group_in_progress(items.iter())
+        };
+        assert!(in_progress(&app, ItemStatus::Queued));
+        assert!(in_progress(&app, ItemStatus::Downloading));
+        assert!(in_progress(&app, ItemStatus::Tagging));
+        assert!(!in_progress(&app, ItemStatus::Done("FLAC".into())));
+        assert!(!in_progress(&app, ItemStatus::Error("x".into())));
+
+        app.downloading = true;
+        app.batch = vec![1];
+        assert!(
+            in_progress(&app, ItemStatus::Done("FLAC".into())),
+            "a done track of the running batch"
+        );
     }
 
     /// An app whose editor is open on album "a", with one track read.

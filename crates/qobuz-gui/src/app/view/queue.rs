@@ -3,7 +3,9 @@
 use super::super::album::guest_performer;
 use super::super::tasks::thumbnail;
 use super::super::{startable, App, EditorSlot, ItemStatus, Message, QueueItem};
-use super::{bold, cover, gutter_padding, hidden_button, quality_badge, slot, tag_editor};
+use super::{
+    bold, cover, gutter_padding, hidden_button, one_line, quality_badge, slot, tag_editor,
+};
 use crate::style::{
     self, compact_button, field_input, fill_button, secondary_button, styled_button,
 };
@@ -16,15 +18,20 @@ use qobuz_core::models::Album;
 use qobuz_core::rename;
 
 pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
-    // The editor takes the list's place, but downloads of other albums go on,
-    // so their progress and Cancel/Start stay above it.
+    // The editor takes the list's place, but downloads go on, so their
+    // progress, Cancel/Start and the albums still in progress stay above it.
     let editor = match &app.tag_editor {
         Some(EditorSlot::Loading(_)) => Some(tag_editor::loading_view()),
         Some(EditorSlot::Open(editor)) => Some(tag_editor::tag_editor_view(app, editor)),
         None => None,
     };
     if let Some(editor) = editor {
-        return column![queue_header(app, true), editor]
+        // The strip's own bars track what is downloading; the queue-wide bar
+        // over them would mostly count finished albums and read as a double.
+        let strip = in_progress_strip(app);
+        return column![queue_header(app, true, strip.is_none())]
+            .push(strip)
+            .push(editor)
             .spacing(style::SPACE_MD)
             .into();
     }
@@ -41,17 +48,17 @@ pub(in crate::app) fn queue_view(app: &App) -> Element<'_, Message> {
     }
 
     column![
-        queue_header(app, false),
+        queue_header(app, false, true),
         scrollable(list.padding(gutter_padding())).height(Length::Fill),
     ]
     .spacing(style::SPACE_MD)
     .into()
 }
 
-/// The queue's count, its actions and the overall progress bar. While an
-/// album's tags are edited, Retry failed and Clear queue are left out: they
-/// would change the queue under the editor.
-fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
+/// The queue's count, its actions and, with `overall_bar`, the overall progress
+/// bar. While an album's tags are edited, Retry failed and Clear queue are left
+/// out: they would change the queue under the editor.
+fn queue_header(app: &App, editing: bool, overall_bar: bool) -> Element<'_, Message> {
     let done = app
         .queue
         .iter()
@@ -119,13 +126,13 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
         ));
     }
 
-    column![
-        header,
-        progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
-            .girth(Length::Fixed(style::PROGRESS_HEIGHT)),
-    ]
-    .spacing(style::SPACE_MD)
-    .into()
+    column![header]
+        .push(overall_bar.then(|| {
+            progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
+                .girth(Length::Fixed(style::PROGRESS_HEIGHT))
+        }))
+        .spacing(style::SPACE_MD)
+        .into()
 }
 
 const GROUP_COVER_SIZE: f32 = 52.0;
@@ -235,6 +242,71 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         .padding(style::SPACE_MD)
         .width(Length::Fill)
         .into()
+}
+
+const STRIP_COVER_SIZE: f32 = 36.0;
+const STRIP_VISIBLE_LINES: usize = 3;
+
+/// The albums still in progress while the editor hides the list, one line
+/// each. `None` when there are none, so the editor sits under the header.
+fn in_progress_strip(app: &App) -> Option<Element<'_, Message>> {
+    let groups = in_progress_groups(app);
+    if groups.is_empty() {
+        return None;
+    }
+    // Every line is exactly the cover's height, so the strip's height is known
+    // and caps at a few lines whatever the number of albums.
+    let visible = groups.len().min(STRIP_VISIBLE_LINES) as f32;
+    let height = visible * STRIP_COVER_SIZE + (visible - 1.0) * style::SPACE_SM;
+
+    let mut lines = column![].spacing(style::SPACE_SM);
+    for group in groups {
+        lines = lines.push(strip_line(app, group));
+    }
+    Some(
+        container(scrollable(lines.padding(gutter_padding())).height(Length::Fixed(height)))
+            .style(style::surface)
+            .padding(style::SPACE_SM)
+            .width(Length::Fill)
+            .into(),
+    )
+}
+
+fn in_progress_groups(app: &App) -> Vec<Group<'_>> {
+    groups(&app.queue)
+        .into_iter()
+        .filter(|g| app.group_in_progress(g.items.iter().copied()))
+        .collect()
+}
+
+/// An album in the strip: its cover, title, done count and progress bar.
+fn strip_line<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
+    let album = group.album;
+    let summary = summarize(&group.items);
+    let thumb = thumbnail(album.image.as_ref()).and_then(|url| app.thumbnails.get(&url));
+    let title = row![
+        one_line(text(&album.title).font(bold()), &album.title),
+        text(format!("{} / {} done", summary.done, summary.total))
+            .size(style::TEXT_SM)
+            .wrapping(Wrapping::None)
+            .style(style::muted_text),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center);
+    row![
+        cover(thumb, STRIP_COVER_SIZE),
+        column![
+            title,
+            progress_bar(0.0..=1.0, summary.fraction.clamp(0.0, 1.0))
+                .girth(Length::Fixed(style::PROGRESS_HEIGHT)),
+        ]
+        .spacing(style::SPACE_XS)
+        .width(Length::Fill),
+    ]
+    .spacing(style::SPACE_SM)
+    .height(Length::Fixed(STRIP_COVER_SIZE))
+    .align_y(iced::Alignment::Center)
+    .into()
 }
 
 /// Fits a typical `Artist - Album (Year)` name beside the group's artist.
@@ -583,6 +655,38 @@ mod tests {
 
     fn done_as(label: &str) -> ItemStatus {
         ItemStatus::Done(label.into())
+    }
+
+    #[test]
+    fn strip_lists_only_albums_in_progress() {
+        let mut app = App::from_parts(qobuz_core::config::Config::default(), None, None);
+        app.queue = vec![
+            track_in(1, "settled", done_as("FLAC 24/96")),
+            track_in(2, "settled", ItemStatus::Error("x".into())),
+            track_in(3, "added", ItemStatus::Queued),
+            track_in(4, "running", done_as("FLAC 24/96")),
+            track_in(5, "running", ItemStatus::Downloading),
+        ];
+        let ids = |app: &App| -> Vec<String> {
+            in_progress_groups(app)
+                .iter()
+                .map(|g| g.album.id.clone())
+                .collect()
+        };
+        assert_eq!(ids(&app), ["added", "running"]);
+
+        app.queue[4].status = done_as("FLAC 24/96");
+        app.downloading = true;
+        app.batch = vec![3, 4, 5];
+        assert_eq!(
+            ids(&app),
+            ["added", "running"],
+            "a done album stays while its batch runs"
+        );
+
+        app.downloading = false;
+        app.queue[2].status = done_as("FLAC 24/96");
+        assert!(ids(&app).is_empty());
     }
 
     #[test]

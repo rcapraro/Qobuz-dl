@@ -126,9 +126,13 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
     let info = column![
         text(&editor.title).size(style::TEXT_HEADLINE).font(bold()),
         text(&editor.artist).size(style::TEXT_SECTION),
-        text(progress(editor, has_edits))
-            .size(style::TEXT_SM)
-            .style(style::muted_text),
+        text(progress(
+            editor,
+            has_edits,
+            !app.tags_editable(&editor.album_id)
+        ))
+        .size(style::TEXT_SM)
+        .style(style::muted_text),
         actions,
     ]
     .spacing(style::SPACE_XS)
@@ -145,8 +149,9 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
     .into()
 }
 
-/// What the editor is doing, or whether it holds unsaved edits.
-fn progress(editor: &TagEditor, has_edits: bool) -> String {
+/// What the editor is doing, why it can't save while its album is back in the
+/// queue, or whether it holds unsaved edits.
+fn progress(editor: &TagEditor, has_edits: bool, requeued: bool) -> String {
     if let Some(s) = &editor.saving {
         return format!("Saving {} of {}…", (s.done + 1).min(s.total), s.total);
     }
@@ -162,6 +167,7 @@ fn progress(editor: &TagEditor, has_edits: bool) -> String {
         }
         Some(Lookup::Choosing(_)) => "Choose the release that matches your files".to_owned(),
         Some(Lookup::Cover(_)) => "Fetching the cover from the Cover Art Archive…".to_owned(),
+        None if requeued => "Back in the queue: save once its download ends".to_owned(),
         None if has_edits => "Unsaved changes".to_owned(),
         None => String::new(),
     }
@@ -571,4 +577,44 @@ fn validated(input: TextInput<'_, Message>, bad: bool) -> TextInput<'_, Message>
         s.border.width = 1.5;
         s
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::album::tests::job;
+    use super::*;
+    use qobuz_core::tag_edit::TagFields;
+    use std::path::PathBuf;
+
+    fn editor() -> TagEditor {
+        let read = vec![(
+            job(1, 1, Some("Band")),
+            PathBuf::from("/m/1.flac"),
+            Ok(TagFields::default()),
+        )];
+        TagEditor::new("al".into(), read)
+    }
+
+    #[test]
+    fn status_line_says_why_a_requeued_album_cannot_save() {
+        let back = "Back in the queue: save once its download ends";
+        let mut e = editor();
+        assert_eq!(progress(&e, false, false), "");
+        assert_eq!(progress(&e, false, true), back);
+
+        e.set_album_text(Field::Album, "New".into());
+        assert_eq!(progress(&e, true, false), "Unsaved changes");
+        assert_eq!(
+            progress(&e, true, true),
+            back,
+            "kept edits wait for the download"
+        );
+
+        let mut looking = editor();
+        looking.start_lookup();
+        assert_eq!(progress(&looking, false, true), "Looking up MusicBrainz…");
+
+        e.start_saving();
+        assert_eq!(progress(&e, true, true), "Saving 1 of 1…");
+    }
 }
