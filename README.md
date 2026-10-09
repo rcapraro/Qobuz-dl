@@ -107,7 +107,10 @@ only need to do this once unless you sign out or the token is revoked.
    **Open** button next to the download directory.
 4. **Files land** in your configured download directory, organized by the
    folder/track **path templates** (e.g. `{artist}/{album}` /
-   `{tracknumber:02} - {title}`), with tags and cover art embedded.
+   `{tracknumber:02} - {title}`), with tags and cover art embedded. Only the
+   template's own `/` makes folders: one inside a value, as in "AC/DC", is
+   replaced by a space. Version 2.0.2 and earlier made a folder of it, so an album
+   downloaded then lands in a new folder if you download it again.
 5. **Fix up tags and folders** once an album is done: **Edit tags** and
    **Rename folder** on its queue group (see [Tags](#tags)).
 

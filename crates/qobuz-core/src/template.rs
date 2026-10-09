@@ -74,11 +74,15 @@ pub fn render_segment(template: &str, ctx: &TemplateContext) -> String {
 }
 
 /// Render a multi-segment template (may contain `/`), sanitizing each segment.
+/// Only the template's own `/` separate folders; one inside a value, such as
+/// the album artist "Richard Hickox/Northern Sinfonia of England", is
+/// sanitized away. A segment that renders empty is dropped.
 pub fn render_path(template: &str, ctx: &TemplateContext) -> Vec<String> {
-    let raw = render_raw(template, ctx);
-    raw.split('/')
+    template
+        .split('/')
+        .map(|segment| render_raw(segment, ctx))
         .filter(|s| !s.trim().is_empty())
-        .map(sanitize_segment)
+        .map(|s| sanitize_segment(&s))
         .collect()
 }
 
@@ -177,6 +181,35 @@ mod tests {
     fn multi_segment_split() {
         let segs = render_path("{albumartist}/{album}", &ctx());
         assert_eq!(segs, vec!["Miles Davis", "Kind of Blue"]);
+    }
+
+    #[test]
+    fn separator_in_a_value_makes_no_folder() {
+        let mut c = ctx();
+        c.set("albumartist", "Richard Hickox/Northern Sinfonia of England");
+        let segs = render_path("{albumartist} - {album}", &c);
+        assert_eq!(
+            segs,
+            vec!["Richard Hickox Northern Sinfonia of England - Kind of Blue"]
+        );
+        let segs = render_path("{albumartist}/{album}", &c);
+        assert_eq!(
+            segs,
+            vec![
+                "Richard Hickox Northern Sinfonia of England",
+                "Kind of Blue"
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_folder_segment_is_dropped() {
+        let mut c = ctx();
+        c.set("albumartist", "");
+        assert_eq!(
+            render_path("{albumartist}/{album}", &c),
+            vec!["Kind of Blue"]
+        );
     }
 
     #[test]
