@@ -4,10 +4,12 @@
 use super::open;
 use super::paging::{Page, Section, PAGE_SIZE};
 use super::{AlbumResult, SearchPayload, TrackResult};
-use iced::futures::future;
+use iced::futures::channel::mpsc::Sender;
+use iced::futures::{future, SinkExt, Stream};
 use qobuz_core::catalog::Reference;
 use qobuz_core::engine::{self, Job};
 use qobuz_core::models::{AlbumList, Image, TrackList};
+use qobuz_core::musicbrainz::{self, Candidate, DiskAlbum, Step};
 use qobuz_core::rename;
 use qobuz_core::tag_edit::{self, CoverEdit, CoverPlan, Saved, TagEdits, TagFields};
 use qobuz_core::{AppCredentials, QobuzClient, SigningCheck};
@@ -243,13 +245,22 @@ pub(super) async fn pick_cover() -> Result<Option<Vec<u8>>, String> {
     let bytes = tokio::fs::read(file.path())
         .await
         .map_err(|e| format!("{}: {e}", unreadable()))?;
+    readable_cover(bytes, unreadable).await.map(Some)
+}
+
+/// `bytes` if they are a JPEG or PNG image, checked off the UI thread;
+/// otherwise the `unreadable` message.
+async fn readable_cover(
+    bytes: Vec<u8>,
+    unreadable: impl FnOnce() -> String,
+) -> Result<Vec<u8>, String> {
     let (bytes, readable) = tokio::task::spawn_blocking(move || {
         let readable = qobuz_core::artwork::is_cover_image(&bytes);
         (bytes, readable)
     })
     .await
     .map_err(|e| e.to_string())?;
-    readable.then_some(Some(bytes)).ok_or_else(unreadable)
+    readable.then_some(bytes).ok_or_else(unreadable)
 }
 
 /// Resize a replacement cover once for the whole album, off the UI thread.
@@ -296,4 +307,53 @@ pub(super) async fn rename_folder(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+/// What a MusicBrainz lookup reports: each step, then the releases found.
+#[derive(Debug, Clone)]
+pub(super) enum LookupEvent {
+    Step(Step),
+    Found(Result<Vec<Candidate>, String>),
+}
+
+/// Look `album` up on MusicBrainz, streaming its steps as it goes.
+pub(super) fn musicbrainz_lookup(album: DiskAlbum) -> impl Stream<Item = LookupEvent> {
+    iced::stream::channel(8, move |mut output: Sender<LookupEvent>| async move {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let lookup = async move {
+            let found = musicbrainz::lookup(&album, |step| {
+                let _ = tx.send(step);
+            })
+            .await;
+            // Closing the channel is what ends the drain below.
+            drop(tx);
+            found
+        };
+        let mut steps = output.clone();
+        let drain = async move {
+            while let Some(step) = rx.recv().await {
+                let _ = steps.send(LookupEvent::Step(step)).await;
+            }
+        };
+        let (found, ()) = future::join(lookup, drain).await;
+        let _ = output
+            .send(LookupEvent::Found(found.map_err(|e| e.to_string())))
+            .await;
+    })
+}
+
+/// The release's front cover from the Cover Art Archive, `None` when it has
+/// none; an error when it can't be fetched or isn't a JPEG or PNG image.
+pub(super) async fn musicbrainz_cover(release_id: String) -> Result<Option<Vec<u8>>, String> {
+    let Some(bytes) = musicbrainz::front_cover(&release_id)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    readable_cover(bytes, || {
+        "its cover is not a readable JPEG or PNG image".to_string()
+    })
+    .await
+    .map(Some)
 }

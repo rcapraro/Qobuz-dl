@@ -59,6 +59,9 @@ pub struct Album {
     pub label: Option<Label>,
     #[serde(default)]
     pub copyright: Option<String>,
+    /// The barcode, which finds this edition on MusicBrainz.
+    #[serde(default)]
+    pub upc: Option<String>,
     #[serde(default)]
     pub hires: bool,
     #[serde(default)]
@@ -229,6 +232,16 @@ mod tests {
         let json = r#"{"id":"1","title":"X","release_date_original":"2019-05-03"}"#;
         let a: Album = serde_json::from_str(json).unwrap();
         assert_eq!(a.year(), Some("2019"));
+    }
+
+    #[test]
+    fn album_upc_read_when_present() {
+        let json = r#"{"id":"1","title":"X","upc":"0886445123456"}"#;
+        let a: Album = serde_json::from_str(json).unwrap();
+        assert_eq!(a.upc.as_deref(), Some("0886445123456"));
+
+        let a: Album = serde_json::from_str(r#"{"id":"1","title":"X"}"#).unwrap();
+        assert_eq!(a.upc, None);
     }
 
     #[test]

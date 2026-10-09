@@ -14,6 +14,7 @@ pub mod download;
 pub mod engine;
 pub mod error;
 pub mod models;
+pub mod musicbrainz;
 pub mod quality;
 pub mod rename;
 pub mod signature;

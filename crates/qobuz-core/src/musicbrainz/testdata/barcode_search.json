@@ -1,0 +1,119 @@
+{
+  "count": 2,
+  "created": "2026-10-09T11:30:45.164Z",
+  "offset": 0,
+  "releases": [
+    {
+      "artist-credit": [
+        {
+          "artist": {
+            "disambiguation": "jazz trumpeter, bandleader, songwriter",
+            "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+            "name": "Miles Davis"
+          },
+          "name": "Miles Davis"
+        }
+      ],
+      "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+      "asin": "B00003XAQ5",
+      "barcode": "074646493564",
+      "count": 2,
+      "country": "US",
+      "date": "2001-08-14",
+      "id": "6949dcd6-8630-490d-bdd6-d997b85014ac",
+      "label-info": [
+        {
+          "catalog-number": "CS 64935",
+          "label": {
+            "id": "45ffe1d8-92da-4750-9a4a-f42861f46e2c",
+            "name": "Legacy"
+          }
+        },
+        {
+          "catalog-number": "CS 64935",
+          "label": {
+            "id": "011d1192-6f65-45bd-85c4-0400dd45693e",
+            "name": "Columbia"
+          }
+        }
+      ],
+      "media": [
+        {
+          "disc-count": 4,
+          "format": "SACD (2 channels)",
+          "id": "db4616f7-89e3-3f55-a88f-bf2fe59b04ca",
+          "track-count": 6
+        },
+        {
+          "disc-count": 0,
+          "format": "SACD (multichannel)",
+          "id": "24f49e1a-a668-382f-85d4-c24927729c81",
+          "track-count": 6
+        }
+      ],
+      "packaging": "Jewel Case",
+      "release-group": {
+        "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+        "primary-type": "Album",
+        "title": "Kind of Blue"
+      },
+      "score": 100,
+      "status": "Official",
+      "title": "Kind of Blue",
+      "track-count": 12
+    },
+    {
+      "artist-credit": [
+        {
+          "artist": {
+            "disambiguation": "jazz trumpeter, bandleader, songwriter",
+            "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+            "name": "Miles Davis"
+          },
+          "name": "Miles Davis"
+        }
+      ],
+      "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+      "barcode": "074646493564",
+      "count": 1,
+      "country": "US",
+      "date": "2003",
+      "disambiguation": "SACD-only version in jewel case with slipcase.",
+      "id": "d3f0f7aa-d53c-4b96-9f19-f34ec06fdbc8",
+      "label-info": [
+        {
+          "catalog-number": "CS 64935",
+          "label": {
+            "id": "45ffe1d8-92da-4750-9a4a-f42861f46e2c",
+            "name": "Legacy"
+          }
+        },
+        {
+          "catalog-number": "CS 64935",
+          "label": {
+            "id": "011d1192-6f65-45bd-85c4-0400dd45693e",
+            "name": "Columbia"
+          }
+        }
+      ],
+      "media": [
+        {
+          "disc-count": 0,
+          "format": "SACD",
+          "id": "46a9b536-dfa4-3c95-8d87-a5ba99aa52a0",
+          "track-count": 6
+        }
+      ],
+      "packaging": "Jewel Case",
+      "release-group": {
+        "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+        "primary-type": "Album",
+        "title": "Kind of Blue"
+      },
+      "score": 100,
+      "status": "Official",
+      "title": "Kind of Blue",
+      "track-count": 6
+    }
+  ]
+}

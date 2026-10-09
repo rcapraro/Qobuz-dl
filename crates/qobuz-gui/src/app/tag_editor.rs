@@ -6,6 +6,7 @@ use iced::widget::combo_box;
 use iced::widget::image::Handle;
 use qobuz_core::engine::Job;
 use qobuz_core::models::ArtistRef;
+use qobuz_core::musicbrainz::{self, Candidate, DiskAlbum, DiskTrack, Release, Step};
 use qobuz_core::tag_edit::{
     CoverAction, CoverEdit, CoverPlan, Field, FieldEdit, FieldKind, Saved, TagEdits, TagFields,
     FLAG_ON, STANDARD_GENRES,
@@ -179,6 +180,83 @@ pub(super) struct TagEditor {
     pub(super) preview: Option<Handle>,
     /// The Genre box, suggesting the standard genres.
     pub(super) genres: combo_box::State<String>,
+    /// Whether Fill from MusicBrainz also replaces the cover.
+    pub(super) include_cover: bool,
+    pub(super) lookup: Option<Lookup>,
+}
+
+/// A Fill from MusicBrainz under way.
+#[derive(Debug, Clone)]
+pub(super) enum Lookup {
+    /// Looking releases up, at this step once one is reached.
+    Searching(Option<Step>),
+    /// Several releases may be the album; the user picks one.
+    Choosing(Vec<Candidate>),
+    /// A release was chosen and its cover is being fetched. Nothing is filled
+    /// until it arrives, so a failed fetch leaves every field as it was.
+    Cover(Box<Candidate>),
+}
+
+/// What a lookup's result led to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Found {
+    Nothing,
+    Choosing,
+    Chosen(Chosen),
+}
+
+/// What became of a chosen release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Chosen {
+    Filled(Filled),
+    /// The cover of the release with this id is needed first.
+    NeedsCover(String),
+}
+
+/// How a fill from MusicBrainz went, for the status line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Filled {
+    pub(super) release: String,
+    pub(super) confidence: u8,
+    pub(super) unmatched: usize,
+    pub(super) no_cover: bool,
+    /// Too few tracks matched, so the album fields and cover were left alone.
+    pub(super) album_kept: bool,
+}
+
+impl Filled {
+    pub(super) fn status(&self) -> String {
+        let mut text = format!(
+            "Filled from MusicBrainz: {} · {} % match.",
+            self.release, self.confidence
+        );
+        if self.unmatched > 0 {
+            let s = if self.unmatched == 1 { "" } else { "s" };
+            text.push_str(&format!(" {} track{s} not matched.", self.unmatched));
+        }
+        if self.album_kept {
+            text.push_str(
+                " Album fields and cover left as they were: fewer than half the tracks matched.",
+            );
+        } else if self.no_cover {
+            text.push_str(" MusicBrainz has no cover for this release.");
+        }
+        text
+    }
+}
+
+/// A release as the user tells it apart: "Kind of Blue (2003, US)".
+pub(super) fn release_name(release: &Release) -> String {
+    let details: Vec<&str> = [release.date.as_deref(), release.country.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|s| !s.is_empty())
+        .collect();
+    if details.is_empty() {
+        release.title.clone()
+    } else {
+        format!("{} ({})", release.title, details.join(", "))
+    }
 }
 
 /// A save in progress, one file at a time, so a large album never needs more
@@ -265,6 +343,8 @@ impl TagEditor {
             saving: None,
             preview: None,
             genres: combo_box::State::default(),
+            include_cover: false,
+            lookup: None,
         }
         .with_derived()
     }
@@ -359,17 +439,35 @@ impl TagEditor {
     /// value for keeps what it shows; an album field whose Qobuz values differ
     /// between tracks does too.
     pub(super) fn reset_to_qobuz(&mut self) {
-        let qobuz: Vec<TagFields> = self.tracks.iter().map(EditorTrack::qobuz).collect();
-        for (field, album_field) in &mut self.album {
-            let mut values = qobuz.iter().map(|q| q.get(*field));
+        let qobuz = self.tracks.iter().map(|t| Some(t.qobuz())).collect();
+        self.fill(qobuz, true);
+    }
+
+    /// Fill the fields from a source's values for each track, in track order,
+    /// `None` for a track the source has nothing for. With `album_fields`, an
+    /// album field is set when every track the source has agrees on it; an
+    /// empty value turns it off, even where the files differ.
+    fn fill(&mut self, values: Vec<Option<TagFields>>, album_fields: bool) {
+        let known: Vec<&TagFields> = values.iter().flatten().collect();
+        let album = self.album.iter_mut().filter(|_| album_fields);
+        for (field, album_field) in album {
+            let mut values = known.iter().map(|q| q.get(*field));
             let Some(Some(first)) = values.next() else {
                 continue;
             };
-            if values.all(|v| v == Some(first)) {
+            if !values.all(|v| v == Some(first)) {
+                continue;
+            }
+            if first.is_empty() {
+                album_field.clear();
+            } else {
                 album_field.set(first.to_string());
             }
         }
-        for (track, q) in self.tracks.iter_mut().zip(&qobuz) {
+        for (track, q) in self.tracks.iter_mut().zip(&values) {
+            let Some(q) = q else {
+                continue;
+            };
             for field in Field::TRACK {
                 if let Some(value) = q.get(field) {
                     track.text.insert(field, value.to_string());
@@ -377,6 +475,136 @@ impl TagEditor {
             }
         }
         self.refresh_genres();
+    }
+
+    /// Whether a save or a MusicBrainz lookup is under way.
+    pub(super) fn busy(&self) -> bool {
+        self.saving.is_some() || self.lookup.is_some()
+    }
+
+    /// Start a Fill from MusicBrainz: the album to look up, or `None` while
+    /// the editor is busy.
+    pub(super) fn start_lookup(&mut self) -> Option<DiskAlbum> {
+        if self.busy() {
+            return None;
+        }
+        self.lookup = Some(Lookup::Searching(None));
+        Some(self.disk_album())
+    }
+
+    /// The album as the lookup knows it: the files' ISRCs and numbering, and
+    /// the barcode, title, label and track count of its Qobuz release.
+    fn disk_album(&self) -> DiskAlbum {
+        let qobuz = self.tracks.first().map(|t| &t.job.album);
+        DiskAlbum {
+            barcode: qobuz.and_then(|a| a.upc.clone()),
+            title: qobuz.map(|a| a.title.clone()).unwrap_or_default(),
+            label: qobuz.and_then(|a| a.label.as_ref()?.name.clone()),
+            track_count: qobuz.and_then(|a| a.tracks_count),
+            disc_count: qobuz.and_then(|a| a.media_count),
+            tracks: self.disk_tracks(),
+        }
+    }
+
+    fn disk_tracks(&self) -> Vec<DiskTrack> {
+        let number = |t: &EditorTrack, f| t.original.get(f).and_then(|n| n.parse().ok());
+        self.tracks
+            .iter()
+            .map(|t| DiskTrack {
+                isrc: t.original.get(Field::Isrc).map(str::to_string),
+                disc: number(t, Field::DiscNumber),
+                number: number(t, Field::TrackNumber),
+            })
+            .collect()
+    }
+
+    pub(super) fn lookup_step(&mut self, step: Step) {
+        if let Some(Lookup::Searching(at)) = &mut self.lookup {
+            *at = Some(step);
+        }
+    }
+
+    pub(super) fn searching(&self) -> bool {
+        matches!(self.lookup, Some(Lookup::Searching(_)))
+    }
+
+    /// The lookup found these releases, best first; `None` when no lookup is
+    /// searching, so a late result is dropped.
+    pub(super) fn found(&mut self, mut candidates: Vec<Candidate>) -> Option<Found> {
+        if !self.searching() {
+            return None;
+        }
+        Some(match candidates.len() {
+            0 => {
+                self.lookup = None;
+                Found::Nothing
+            }
+            1 => Found::Chosen(self.take(candidates.remove(0))),
+            _ => {
+                self.lookup = Some(Lookup::Choosing(candidates));
+                Found::Choosing
+            }
+        })
+    }
+
+    /// The user picked the release at `index` in the list.
+    pub(super) fn choose(&mut self, index: usize) -> Option<Chosen> {
+        let Some(Lookup::Choosing(candidates)) = &mut self.lookup else {
+            return None;
+        };
+        if index >= candidates.len() {
+            return None;
+        }
+        let candidate = candidates.swap_remove(index);
+        Some(self.take(candidate))
+    }
+
+    fn take(&mut self, candidate: Candidate) -> Chosen {
+        if self.include_cover {
+            let id = candidate.release.id.clone();
+            self.lookup = Some(Lookup::Cover(Box::new(candidate)));
+            return Chosen::NeedsCover(id);
+        }
+        self.lookup = None;
+        Chosen::Filled(self.fill_from(&candidate, false))
+    }
+
+    /// The chosen release's cover arrived, `None` when it has none: fill the
+    /// fields and take the cover.
+    pub(super) fn cover_fetched(
+        &mut self,
+        cover: Option<Vec<u8>>,
+        download_size: CoverSize,
+    ) -> Option<Filled> {
+        let Some(Lookup::Cover(candidate)) = self.lookup.take() else {
+            return None;
+        };
+        let filled = self.fill_from(&candidate, cover.is_none());
+        if let Some(image) = cover.filter(|_| !filled.album_kept) {
+            self.replace_cover(image, download_size);
+        }
+        Some(filled)
+    }
+
+    /// End the lookup with nothing changed: cancelled, or it failed.
+    pub(super) fn end_lookup(&mut self) {
+        self.lookup = None;
+    }
+
+    fn fill_from(&mut self, candidate: &Candidate, no_cover: bool) -> Filled {
+        let values = musicbrainz::fill(&candidate.release, &self.disk_album());
+        let unmatched = values.iter().filter(|v| v.is_none()).count();
+        // A release matching fewer than half the files is likely another
+        // edition: its album-wide values would be written to every file.
+        let album_kept = unmatched * 2 > values.len();
+        self.fill(values, !album_kept);
+        Filled {
+            release: release_name(&candidate.release),
+            confidence: candidate.confidence,
+            unmatched,
+            no_cover,
+            album_kept,
+        }
     }
 
     /// Embed `image` in every file. The resize option takes the size a
@@ -543,6 +771,7 @@ pub(super) enum Edit {
     ApplyToAll(i64, Field),
     ToggleExpanded(i64),
     ResetToQobuz,
+    IncludeCover(bool),
     RemoveCover,
     KeepCover,
     Resize(Resize),
@@ -586,7 +815,9 @@ impl TagEditor {
             Edit::TrackFlag(id, field, on) => self.set_track_flag(id, field, on),
             Edit::ApplyToAll(id, field) => self.apply_to_all(id, field),
             Edit::ToggleExpanded(id) => self.toggle_expanded(id),
-            Edit::ResetToQobuz => self.reset_to_qobuz(),
+            Edit::ResetToQobuz if self.lookup.is_none() => self.reset_to_qobuz(),
+            Edit::ResetToQobuz => {}
+            Edit::IncludeCover(on) => self.include_cover = on,
             Edit::RemoveCover => self.remove_cover(),
             Edit::KeepCover => self.keep_cover(),
             Edit::Resize(choice) => self.set_resize(match choice {
@@ -884,5 +1115,242 @@ mod tests {
         assert_eq!(e.tracks.len(), 1);
         assert_eq!(e.unreadable[0].title, "t2");
         assert_eq!(e.unreadable[0].reason, "gone");
+    }
+
+    #[test]
+    fn fill_keeps_tracks_the_source_has_nothing_for() {
+        let mut e = editor(&[
+            &[(Field::Title, "a"), (Field::Album, "Old")],
+            &[(Field::Title, "b"), (Field::Album, "Old")],
+        ]);
+        let source = fields(&[(Field::Title, "A"), (Field::Album, "New")]);
+        e.fill(vec![Some(source), None], true);
+        assert_eq!(e.tracks[0].text(Field::Title), "A");
+        assert_eq!(e.tracks[1].text(Field::Title), "b");
+        assert_eq!(e.album_field(Field::Album).text, "New");
+    }
+
+    #[test]
+    fn fill_turns_a_mixed_flag_off() {
+        let mut e = editor(&[&[(Field::Compilation, FLAG_ON)], &[]]);
+        let off = || Some(fields(&[(Field::Compilation, "")]));
+        e.fill(vec![off(), off()], true);
+        assert_eq!(
+            edits_of(&e)[0].get(&Field::Compilation),
+            Some(&FieldEdit::Clear)
+        );
+    }
+
+    mod musicbrainz_fill {
+        use super::*;
+        use qobuz_core::musicbrainz::{Medium, Recording, ReleaseTrack};
+
+        /// A one-track release whose track has `isrc`.
+        fn candidate(id: &str, title: &str, isrc: &str, confidence: u8) -> Candidate {
+            let track = ReleaseTrack {
+                position: 1,
+                title: title.into(),
+                recording: Recording {
+                    isrcs: vec![isrc.into()],
+                    ..Recording::default()
+                },
+                ..ReleaseTrack::default()
+            };
+            let release = Release {
+                id: id.into(),
+                title: "Kind of Blue".into(),
+                date: Some("2003".into()),
+                country: Some("US".into()),
+                media: vec![Medium {
+                    position: 1,
+                    track_count: 1,
+                    tracks: vec![track],
+                    ..Medium::default()
+                }],
+                ..Release::default()
+            };
+            Candidate {
+                release,
+                confidence,
+            }
+        }
+
+        fn searching() -> TagEditor {
+            let mut e = editor(&[&[
+                (Field::Title, "old"),
+                (Field::Isrc, "USSM15900113"),
+                (Field::TrackNumber, "1"),
+            ]]);
+            e.tracks[0].job.album.upc = Some("074646493564".into());
+            assert!(e.start_lookup().is_some());
+            e
+        }
+
+        #[test]
+        fn lookup_reads_the_album_on_disk() {
+            let mut e = editor(&[&[(Field::Isrc, "USSM15900113"), (Field::TrackNumber, "4")]]);
+            e.tracks[0].job.album.upc = Some("074646493564".into());
+            let album = e.start_lookup().unwrap();
+            assert_eq!(album.barcode.as_deref(), Some("074646493564"));
+            assert_eq!(album.tracks[0].isrc.as_deref(), Some("USSM15900113"));
+            assert_eq!(album.tracks[0].number, Some(4));
+            assert!(e.busy());
+            assert!(e.start_lookup().is_none(), "one lookup at a time");
+        }
+
+        #[test]
+        fn nothing_found_changes_nothing() {
+            let mut e = searching();
+            assert_eq!(e.found(Vec::new()), Some(Found::Nothing));
+            assert!(e.lookup.is_none());
+            assert!(!e.has_edits());
+        }
+
+        #[test]
+        fn a_single_release_fills_directly() {
+            let mut e = searching();
+            let found = e.found(vec![candidate("r1", "So What", "USSM15900113", 96)]);
+            let Some(Found::Chosen(Chosen::Filled(filled))) = found else {
+                panic!("{found:?}");
+            };
+            assert!(e.lookup.is_none());
+            assert_eq!(e.tracks[0].text(Field::Title), "So What");
+            assert!(e.has_edits());
+            assert_eq!(
+                filled.status(),
+                "Filled from MusicBrainz: Kind of Blue (2003, US) · 96 % match."
+            );
+        }
+
+        #[test]
+        fn several_releases_are_listed_until_one_is_chosen() {
+            let mut e = searching();
+            let found = e.found(vec![
+                candidate("r1", "So What", "USSM15900113", 96),
+                candidate("r2", "So What (mono)", "USSM15900113", 71),
+            ]);
+            assert_eq!(found, Some(Found::Choosing));
+            assert!(matches!(e.lookup, Some(Lookup::Choosing(ref c)) if c.len() == 2));
+            assert!(!e.has_edits());
+
+            assert!(matches!(e.choose(1), Some(Chosen::Filled(_))));
+            assert_eq!(e.tracks[0].text(Field::Title), "So What (mono)");
+            assert!(e.lookup.is_none());
+        }
+
+        #[test]
+        fn cancelling_the_list_leaves_every_field() {
+            let mut e = searching();
+            e.found(vec![
+                candidate("r1", "So What", "USSM15900113", 96),
+                candidate("r2", "Other", "USSM15900113", 71),
+            ]);
+            e.end_lookup();
+            assert!(e.lookup.is_none());
+            assert_eq!(e.tracks[0].text(Field::Title), "old");
+            assert!(!e.has_edits());
+        }
+
+        #[test]
+        fn unmatched_tracks_are_counted() {
+            let mut e = editor(&[
+                &[(Field::Isrc, "USSM15900113"), (Field::TrackNumber, "1")],
+                &[(Field::Isrc, "XX0000000000"), (Field::TrackNumber, "9")],
+            ]);
+            e.start_lookup();
+            let found = e.found(vec![candidate("r1", "So What", "USSM15900113", 50)]);
+            let Some(Found::Chosen(Chosen::Filled(filled))) = found else {
+                panic!("{found:?}");
+            };
+            assert_eq!(filled.unmatched, 1);
+            assert!(filled.status().ends_with("1 track not matched."));
+        }
+
+        #[test]
+        fn reset_waits_for_the_lookup() {
+            let mut e = searching();
+            e.apply(Edit::ResetToQobuz);
+            assert_eq!(e.tracks[0].text(Field::Title), "old");
+        }
+
+        #[test]
+        fn with_cover_nothing_is_filled_before_the_cover() {
+            let mut e = searching();
+            e.apply(Edit::IncludeCover(true));
+            let found = e.found(vec![candidate("r1", "So What", "USSM15900113", 96)]);
+            assert_eq!(found, Some(Found::Chosen(Chosen::NeedsCover("r1".into()))));
+            assert!(e.busy());
+            assert_eq!(e.tracks[0].text(Field::Title), "old");
+
+            let filled = e
+                .cover_fetched(Some(vec![1, 2, 3]), CoverSize::Px400)
+                .unwrap();
+            assert!(!filled.no_cover);
+            assert_eq!(e.cover, CoverAction::Replace(vec![1, 2, 3]));
+            assert_eq!(e.resize, Some(CoverSize::Px400));
+            assert_eq!(e.tracks[0].text(Field::Title), "So What");
+            assert!(!e.busy());
+        }
+
+        #[test]
+        fn a_release_without_cover_still_fills() {
+            let mut e = searching();
+            e.include_cover = true;
+            e.found(vec![candidate("r1", "So What", "USSM15900113", 96)]);
+            let filled = e.cover_fetched(None, CoverSize::Px600).unwrap();
+            assert!(filled.no_cover);
+            assert!(filled
+                .status()
+                .ends_with("MusicBrainz has no cover for this release."));
+            assert_eq!(e.cover, CoverAction::Keep);
+            assert_eq!(e.tracks[0].text(Field::Title), "So What");
+        }
+
+        #[test]
+        fn a_failed_cover_fills_nothing() {
+            let mut e = searching();
+            e.include_cover = true;
+            e.found(vec![candidate("r1", "So What", "USSM15900113", 96)]);
+            e.end_lookup();
+            assert_eq!(e.tracks[0].text(Field::Title), "old");
+            assert_eq!(e.cover, CoverAction::Keep);
+            assert!(!e.has_edits());
+        }
+
+        #[test]
+        fn few_matches_leave_the_album_fields_and_cover() {
+            let file = |isrc: &'static str| [(Field::Isrc, isrc), (Field::Album, "Old")];
+            let (a, b, c) = (
+                file("USSM15900113"),
+                file("XX0000000001"),
+                file("XX0000000002"),
+            );
+            let mut e = editor(&[&a, &b, &c]);
+            e.include_cover = true;
+            e.start_lookup();
+            e.found(vec![candidate("r1", "So What", "USSM15900113", 40)]);
+            let filled = e.cover_fetched(Some(vec![1]), CoverSize::Px600).unwrap();
+
+            assert!(filled.album_kept);
+            assert_eq!(e.album_field(Field::Album).text, "Old");
+            assert_eq!(e.cover, CoverAction::Keep);
+            assert_eq!(
+                e.tracks[0].text(Field::Title),
+                "So What",
+                "the match is still filled"
+            );
+            assert!(filled
+                .status()
+                .contains("Album fields and cover left as they were"));
+        }
+
+        #[test]
+        fn release_named_by_what_tells_it_apart() {
+            let mut r = candidate("r", "t", "i", 0).release;
+            assert_eq!(release_name(&r), "Kind of Blue (2003, US)");
+            r.country = None;
+            r.date = None;
+            assert_eq!(release_name(&r), "Kind of Blue");
+        }
     }
 }

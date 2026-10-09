@@ -484,6 +484,7 @@ mod tests {
             tracks: None,
             label: None,
             copyright: None,
+            upc: None,
             hires: false,
             hires_streamable: false,
         };

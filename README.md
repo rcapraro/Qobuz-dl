@@ -138,6 +138,19 @@ list, showing what the files hold now:
 - The **cover** can be replaced from a JPEG or PNG file, removed, or resized to
   400, 500 or 600 px.
 - **Reset to Qobuz** refills the fields from the album's Qobuz metadata.
+- **Fill from MusicBrainz** finds the album on [MusicBrainz](https://musicbrainz.org)
+  by its barcode, by its tracks' ISRCs, or by its title among releases with the
+  same number of tracks and discs, and fills the fields from it: the
+  original release date, MusicBrainz's most-voted genre, composers and more.
+  Explicit, ISRC, copyright and comment are left alone. When several releases
+  match, the track list is replaced by a list of them, ranked by a **match**
+  percentage that measures how well each fits your files; pick one with
+  **Use**. Tick **Include cover** first to also take the release's front cover
+  from the Cover Art Archive. **Cancel lookup** stops it at any step without
+  changing anything. If fewer than half your tracks match the chosen release,
+  only those tracks are filled; the album fields and cover are left alone. The
+  app only contacts MusicBrainz when you ask, and sends only the album's
+  barcode, ISRCs, title and disc count.
 
 **Save** writes only the fields that changed. Tags outside the list, such as
 ReplayGain, are kept, and a file with nothing to change isn't rewritten. Each

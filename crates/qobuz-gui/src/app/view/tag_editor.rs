@@ -1,14 +1,19 @@
 //! An album's tag editor, shown on the Queue tab in place of the list: the
 //! album fields once, each track's own fields, the cover, and Save.
 
-use super::super::tag_editor::{hint, invalid, label, Edit, EditorTrack, Resize, TagEditor};
+use super::super::tag_editor::{
+    hint, invalid, label, Edit, EditorTrack, Lookup, Resize, TagEditor,
+};
 use super::super::{App, Message};
-use super::{bold, cover, hidden_button, section, slot};
+use super::{bold, cover, hidden_button, one_line, section, slot};
 use crate::style::{self, compact_button, field_input, fill_button, labeled_row, styled_button};
 use iced::widget::{
-    checkbox, column, combo_box, container, pick_list, row, scrollable, text, text_input, TextInput,
+    checkbox, column, combo_box, container, pick_list, row, scrollable, space, text, text_input,
+    TextInput,
 };
 use iced::{Element, Length};
+use iced_aw::widget::badge::Badge;
+use qobuz_core::musicbrainz::{Candidate, Step};
 use qobuz_core::tag_edit::{CoverAction, Field, FieldKind};
 
 const COVER_SIZE: f32 = 96.0;
@@ -26,6 +31,15 @@ const APPLY_WIDTH: f32 = 104.0;
 /// Space the form keeps clear of the scrollbar, beyond its gutter, so the
 /// row-end buttons don't sit against it.
 const RIGHT_MARGIN: f32 = style::SCROLLBAR_GUTTER + style::SPACE_LG;
+/// Fits a "100 %" badge.
+const MATCH_WIDTH: f32 = 84.0;
+/// Fits a two-letter country code, or "XW" for worldwide, under "Country".
+const COUNTRY_WIDTH: f32 = 76.0;
+const USE_WIDTH: f32 = 64.0;
+/// From here a release is shown as a strong match.
+const STRONG_MATCH: u8 = 80;
+/// Below this a release is shown as a poor match.
+const WEAK_MATCH: u8 = 50;
 /// The track fields shown when a track row is expanded, each with Apply to all.
 const MORE_FIELDS: [Field; 6] = [
     Field::Artist,
@@ -49,7 +63,11 @@ pub(in crate::app) fn tag_editor_view<'a>(
     app: &'a App,
     editor: &'a TagEditor,
 ) -> Element<'a, Message> {
-    let mut body = column![album_form(editor), track_list(editor)].spacing(style::SPACE_LG);
+    let tracks = match &editor.lookup {
+        Some(Lookup::Choosing(candidates)) => release_picker(candidates),
+        _ => track_list(editor),
+    };
+    let mut body = column![album_form(editor), tracks].spacing(style::SPACE_LG);
     if !editor.unreadable.is_empty() {
         body = body.push(unreadable(editor));
     }
@@ -62,50 +80,57 @@ pub(in crate::app) fn tag_editor_view<'a>(
         .into()
 }
 
-/// The album's identity and the editor's actions: Reset to Qobuz, Save (the
-/// primary action) and Close, which says it discards unsaved edits.
+/// The album's identity and the editor's actions: the sources that fill the
+/// fields (Reset to Qobuz, Fill from MusicBrainz and its cover option), then
+/// Close, which says it discards unsaved edits, and Save, the primary action.
 fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
     let saving = editor.saving.is_some();
+    let busy = editor.busy();
     let has_edits = editor.has_edits();
-    let progress = match &editor.saving {
-        Some(s) => format!("Saving {} of {}…", (s.done + 1).min(s.total), s.total),
-        None if has_edits => "Unsaved changes".to_owned(),
-        None => String::new(),
-    };
     const DISCARD: &str = "Discard changes";
     let close = if has_edits { DISCARD } else { "Close" };
-    // Sized by the longer label, so Reset to Qobuz stays put when Close
-    // becomes Discard changes.
+    // Sized by the longer label, so Save stays put when Close becomes Discard
+    // changes.
     let close_slot = slot(
         hidden_button(DISCARD),
         fill_button(close)
             .style(style::secondary)
             .on_press_maybe((!saving).then_some(Message::CloseTagEditor)),
     );
+    // A running lookup is stopped from the button that started it, sized by
+    // the longer label so the checkbox beside it stays put.
+    const FILL: &str = "Fill from MusicBrainz";
+    let musicbrainz = if editor.lookup.is_some() {
+        fill_button("Cancel lookup").on_press(Message::CancelLookup)
+    } else {
+        fill_button(FILL).on_press_maybe((!busy).then_some(Message::FillFromMusicBrainz))
+    };
+    let musicbrainz_slot = slot(hidden_button(FILL), musicbrainz.style(style::secondary));
     let actions = row![
         styled_button("Reset to Qobuz")
             .style(style::secondary)
             .width(Length::Shrink)
-            .on_press_maybe((!saving).then_some(Message::Editor(Edit::ResetToQobuz))),
+            .on_press_maybe((!busy).then_some(Message::Editor(Edit::ResetToQobuz))),
+        musicbrainz_slot,
+        checkbox(editor.include_cover)
+            .label("Include cover")
+            .text_size(style::TEXT_BODY)
+            .on_toggle_maybe((!busy).then_some(|on| Message::Editor(Edit::IncludeCover(on)))),
+        space::horizontal(),
         close_slot,
         styled_button("Save")
             .on_press_maybe((has_edits && app.save_ready(editor)).then_some(Message::SaveTags)),
     ]
-    .spacing(style::SPACE_SM);
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center);
 
-    // The actions sit on the status line so they never squeeze the title.
     let info = column![
         text(&editor.title).size(style::TEXT_HEADLINE).font(bold()),
         text(&editor.artist).size(style::TEXT_SECTION),
-        row![
-            text(progress)
-                .size(style::TEXT_SM)
-                .style(style::muted_text)
-                .width(Length::Fill),
-            actions,
-        ]
-        .spacing(style::SPACE_SM)
-        .align_y(iced::Alignment::Center),
+        text(progress(editor, has_edits))
+            .size(style::TEXT_SM)
+            .style(style::muted_text),
+        actions,
     ]
     .spacing(style::SPACE_XS)
     .width(Length::Fill);
@@ -119,6 +144,28 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
     .padding(style::SPACE_LG)
     .width(Length::Fill)
     .into()
+}
+
+/// What the editor is doing, or whether it holds unsaved edits.
+fn progress(editor: &TagEditor, has_edits: bool) -> String {
+    if let Some(s) = &editor.saving {
+        return format!("Saving {} of {}…", (s.done + 1).min(s.total), s.total);
+    }
+    match &editor.lookup {
+        Some(Lookup::Searching(None)) => "Looking up MusicBrainz…".to_owned(),
+        Some(Lookup::Searching(Some(Step::Barcode))) => {
+            "Searching MusicBrainz by barcode…".to_owned()
+        }
+        Some(Lookup::Searching(Some(Step::Isrcs))) => "Searching MusicBrainz by ISRC…".to_owned(),
+        Some(Lookup::Searching(Some(Step::Title))) => "Searching MusicBrainz by title…".to_owned(),
+        Some(Lookup::Searching(Some(Step::Release { n, of }))) => {
+            format!("Reading MusicBrainz release {n} of {of}…")
+        }
+        Some(Lookup::Choosing(_)) => "Choose the release that matches your files".to_owned(),
+        Some(Lookup::Cover(_)) => "Fetching the cover from the Cover Art Archive…".to_owned(),
+        None if has_edits => "Unsaved changes".to_owned(),
+        None => String::new(),
+    }
 }
 
 /// The album fields on the label column, short ones sharing a row with inline
@@ -273,10 +320,10 @@ impl std::fmt::Display for YesNo {
 /// The cover thumbnail, Replace…, Remove (or Keep once removal is chosen),
 /// and the resize option, which has nothing to resize once the cover goes.
 fn cover_controls(editor: &TagEditor) -> Element<'_, Message> {
+    let idle = |edit| (!editor.busy()).then_some(Message::Editor(edit));
     let mut controls = row![
         cover(editor.preview.as_ref(), COVER_THUMB_SIZE),
-        compact_button("Replace…")
-            .on_press_maybe(editor.saving.is_none().then_some(Message::PickCover)),
+        compact_button("Replace…").on_press_maybe((!editor.busy()).then_some(Message::PickCover)),
     ]
     .spacing(style::SPACE_SM)
     .align_y(iced::Alignment::Center);
@@ -287,10 +334,10 @@ fn cover_controls(editor: &TagEditor) -> Element<'_, Message> {
                     .size(style::TEXT_SM)
                     .style(style::muted_text),
             )
-            .push(compact_button("Keep").on_press(Message::Editor(Edit::KeepCover)));
+            .push(compact_button("Keep").on_press_maybe(idle(Edit::KeepCover)));
     } else {
         controls = controls
-            .push(compact_button("Remove").on_press(Message::Editor(Edit::RemoveCover)))
+            .push(compact_button("Remove").on_press_maybe(idle(Edit::RemoveCover)))
             .push(text("Resize:").size(style::TEXT_SM))
             .push(pick_list(
                 Resize::all(),
@@ -326,6 +373,100 @@ fn track_list(editor: &TagEditor) -> Element<'_, Message> {
         }
     }
     list.into()
+}
+
+/// The releases a MusicBrainz lookup found, best match first, in place of the
+/// track list until one is chosen or the list is cancelled.
+fn release_picker(candidates: &[Candidate]) -> Element<'_, Message> {
+    let head = row![
+        column_label("Match", Length::Fixed(MATCH_WIDTH)),
+        column_label("Title", Length::FillPortion(3)),
+        column_label("Date", Length::Fixed(DATE_WIDTH)),
+        column_label("Country", Length::Fixed(COUNTRY_WIDTH)),
+        column_label("Label", Length::FillPortion(2)),
+        column_label("Format", Length::FillPortion(2)),
+        column_label("Tracks", Length::Fixed(NUMBER_WIDTH)),
+        column_label("", Length::Fixed(USE_WIDTH)),
+    ]
+    .spacing(style::SPACE_SM);
+    let mut list = column![
+        row![
+            section("MusicBrainz releases"),
+            space::horizontal(),
+            compact_button("Cancel").on_press(Message::CancelLookup),
+        ]
+        .align_y(iced::Alignment::Center),
+        text("Ranked by how well each release matches your files.")
+            .size(style::TEXT_SM)
+            .style(style::muted_text),
+        container(head)
+            .style(style::table_head)
+            .padding([style::SPACE_XS, 0.0])
+    ]
+    .spacing(style::SPACE_SM);
+    for (index, candidate) in candidates.iter().enumerate() {
+        list = list.push(release_row(index, candidate));
+    }
+    list.into()
+}
+
+fn release_row(index: usize, candidate: &Candidate) -> Element<'_, Message> {
+    let release = &candidate.release;
+    let cell = |value: String, width: Length| {
+        container(text(value))
+            .width(width)
+            .padding([0.0, style::INPUT_PADDING + 1.0])
+    };
+    // Title, label and format can run long: kept on one line, so every row
+    // is a line tall, with the whole value on hover.
+    let long_cell = |value: String, width: Length| {
+        container(one_line(text(value.clone()), value))
+            .width(width)
+            .padding([0.0, style::INPUT_PADDING + 1.0])
+    };
+    let or_dash = |value: Option<&str>| value.filter(|v| !v.is_empty()).unwrap_or("–").to_owned();
+    row![
+        container(confidence_badge(candidate.confidence))
+            .width(Length::Fixed(MATCH_WIDTH))
+            .padding([0.0, style::INPUT_PADDING + 1.0]),
+        long_cell(release.title.clone(), Length::FillPortion(3)),
+        cell(or_dash(release.date.as_deref()), Length::Fixed(DATE_WIDTH)),
+        cell(
+            or_dash(release.country.as_deref()),
+            Length::Fixed(COUNTRY_WIDTH)
+        ),
+        long_cell(or_dash(release.label()), Length::FillPortion(2)),
+        long_cell(or_dash(Some(&release.formats())), Length::FillPortion(2)),
+        cell(
+            release.total_tracks().to_string(),
+            Length::Fixed(NUMBER_WIDTH)
+        ),
+        compact_button("Use")
+            .width(Length::Fixed(USE_WIDTH))
+            .on_press(Message::ChooseRelease(index)),
+    ]
+    .spacing(style::SPACE_SM)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// A release's match confidence, colored by how far it can be trusted.
+fn confidence_badge<'a>(confidence: u8) -> Element<'a, Message> {
+    Badge::new(
+        text(format!("{confidence} %"))
+            .size(style::TEXT_SM)
+            .wrapping(text::Wrapping::None),
+    )
+    .style(move |theme, _status| {
+        let a = style::accents(theme);
+        let role = match confidence {
+            STRONG_MATCH.. => a.success(),
+            WEAK_MATCH.. => a.progress(),
+            _ => a.error(),
+        };
+        style::role_badge(theme, role)
+    })
+    .into()
 }
 
 /// A column heading `width` wide, its text inset like an input's so it sits

@@ -1,0 +1,812 @@
+{
+  "asin": null,
+  "barcode": "00602448513403",
+  "country": null,
+  "date": "2022-08-25",
+  "disambiguation": "",
+  "id": "d4fe1b45-5244-427d-ad79-51a10d424501",
+  "media": [
+    {
+      "format": "Digital Media",
+      "id": "2906f21c-ed52-3de4-b6fd-f7034d441b23",
+      "position": 1,
+      "title": "",
+      "track-count": 42,
+      "track-offset": 0,
+      "tracks": [
+        {
+          "id": "17d1360e-a65c-4b51-a95c-9350bcfe1f9c",
+          "length": 168000,
+          "number": "1",
+          "position": 1,
+          "recording": {
+            "disambiguation": "studio, 1950-03-09: WOR Studios, New York, US",
+            "first-release-date": "1957-02",
+            "id": "da4013ce-ea94-4069-9a38-5b5b58118c26",
+            "isrcs": [
+              "USCA20000983",
+              "USCA29800232"
+            ],
+            "length": 168000,
+            "title": "Deception",
+            "video": false
+          },
+          "title": "Deception (remastered)"
+        },
+        {
+          "id": "d1fb6dfb-868f-47dd-8eaa-ef44728fea1d",
+          "length": 182000,
+          "number": "2",
+          "position": 2,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "1957-02",
+            "id": "837acfc4-34d2-44a0-946a-eda7e77f7094",
+            "isrcs": [
+              "DEU240815306",
+              "FR8X00900712",
+              "USBJN0920050",
+              "USCA20000985",
+              "USCA28900533"
+            ],
+            "length": 181400,
+            "title": "Boplicity",
+            "video": false
+          },
+          "title": "Boplicity"
+        },
+        {
+          "id": "16b7e6f0-992f-4641-8881-c662f514ee70",
+          "length": 181000,
+          "number": "3",
+          "position": 3,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "258619fa-78dc-47ab-9c5e-2d79fd7d3eb7",
+            "isrcs": [
+              "USBN29800328"
+            ],
+            "length": 181000,
+            "title": "Chance It (remastered 1998)",
+            "video": false
+          },
+          "title": "Chance It (remastered 1998)"
+        },
+        {
+          "id": "7a98487a-396f-4aac-b74c-df3b1e471880",
+          "length": 198000,
+          "number": "4",
+          "position": 4,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "1953",
+            "id": "84467087-947b-4dcf-a860-9f9d70d53375",
+            "isrcs": [
+              "USBN28900211"
+            ],
+            "length": 198253,
+            "title": "Kelo",
+            "video": false
+          },
+          "title": "Kelo"
+        },
+        {
+          "id": "40d3ce71-bfdf-4866-a3c6-76dce0633922",
+          "length": 132000,
+          "number": "5",
+          "position": 5,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "1990-09-18",
+            "id": "42f3c736-eaf2-46ec-a73d-6d2ccc28d3ff",
+            "isrcs": [
+              "USIR20200307"
+            ],
+            "length": 132306,
+            "title": "Blackmail",
+            "video": false
+          },
+          "title": "Blackmail (The Hot Spot / soundtrack version)"
+        },
+        {
+          "id": "f4f42b43-a7bf-4404-ad80-6059568d8957",
+          "length": 186000,
+          "number": "6",
+          "position": 6,
+          "recording": {
+            "disambiguation": "studio, 1950-03-09: WOR Studios, New York, US",
+            "first-release-date": "1957-02",
+            "id": "136a1c2e-fe52-413a-a4d8-b745afae3d37",
+            "isrcs": [
+              "USCA20000987",
+              "USCA28900539"
+            ],
+            "length": 186027,
+            "title": "Rocker",
+            "video": false
+          },
+          "title": "Rocker"
+        },
+        {
+          "id": "2d3f3beb-352e-4db0-9d7d-84e2943afa46",
+          "length": 139000,
+          "number": "7",
+          "position": 7,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "e9ff10c9-c48e-4ffe-8eed-1b61af945c90",
+            "isrcs": [
+              "USCA29800236"
+            ],
+            "length": 139000,
+            "title": "Israel (remastered)",
+            "video": false
+          },
+          "title": "Israel (remastered)"
+        },
+        {
+          "id": "3a29dc13-1264-4077-a2ff-dfdef7f78219",
+          "length": 154000,
+          "number": "8",
+          "position": 8,
+          "recording": {
+            "disambiguation": "studio, 1949-01-21: WOR Studios, New York, US",
+            "first-release-date": "1949-03",
+            "id": "fd2724c6-e5b3-4b89-8111-41e905db5568",
+            "isrcs": [
+              "USCA20000982",
+              "USCA28900531"
+            ],
+            "length": 154706,
+            "title": "Budo",
+            "video": false
+          },
+          "title": "Budo"
+        },
+        {
+          "id": "e1108786-c5a9-4d3c-8da7-58dddf67fe69",
+          "length": 153000,
+          "number": "9",
+          "position": 9,
+          "recording": {
+            "disambiguation": "studio, 1949-01-21: WOR Studios, New York, US",
+            "first-release-date": "1949-03",
+            "id": "dad947fe-fcf9-4358-87f9-5238524ff3cb",
+            "isrcs": [
+              "USCA20000976",
+              "USCA28900529"
+            ],
+            "length": 154000,
+            "title": "Move",
+            "video": false
+          },
+          "title": "Move"
+        },
+        {
+          "id": "d0463704-71c0-49c6-afaf-3e54e4707700",
+          "length": 190000,
+          "number": "10",
+          "position": 10,
+          "recording": {
+            "disambiguation": "studio, 1949-01-21: WOR Studios, New York, US",
+            "first-release-date": "1957-02",
+            "id": "84748f07-5454-43c0-978c-d120b7985119",
+            "isrcs": [
+              "USCA20000984",
+              "USCA29800233"
+            ],
+            "length": 190106,
+            "title": "Godchild",
+            "video": false
+          },
+          "title": "Godchild (remastered)"
+        },
+        {
+          "id": "94cf4b0e-f856-44ab-b932-ef1cf5d931ed",
+          "length": 200000,
+          "number": "11",
+          "position": 11,
+          "recording": {
+            "disambiguation": "studio, 1950-03-09: WOR Studios, New York, US",
+            "first-release-date": "1957-02",
+            "id": "786e74ba-93d2-4c7c-8eed-3e39c6bdd59c",
+            "isrcs": [
+              "USCA20000980",
+              "USCA28900537"
+            ],
+            "length": 200093,
+            "title": "Moon Dreams",
+            "video": false
+          },
+          "title": "Moon Dreams"
+        },
+        {
+          "id": "2ce1333d-1ecb-4360-b1f9-9fafcfb43bfd",
+          "length": 192000,
+          "number": "12",
+          "position": 12,
+          "recording": {
+            "disambiguation": "studio, 1949-04-22: WOR Studios, New York, US",
+            "first-release-date": "1957-02",
+            "id": "e69c7c4d-417e-485b-bf19-94778fee3ab7",
+            "isrcs": [
+              "USCA20000981",
+              "USCA28900926"
+            ],
+            "length": 192000,
+            "title": "Venus de Milo",
+            "video": false
+          },
+          "title": "Venus de Milo"
+        },
+        {
+          "id": "e9b854d4-b11e-4692-b036-ef674129e495",
+          "length": 195000,
+          "number": "13",
+          "position": 13,
+          "recording": {
+            "disambiguation": "studio, 1949-04-22: WOR Studios, New York, US",
+            "first-release-date": "1957-02",
+            "id": "11ae3c6a-8ca9-453d-b0ef-1bac810b5de4",
+            "isrcs": [
+              "USCA20000989",
+              "USCA28900536"
+            ],
+            "length": 194960,
+            "title": "Rouge",
+            "video": false
+          },
+          "title": "Rouge"
+        },
+        {
+          "id": "90bf8dd2-2d67-4a31-97fa-c5fd2b80f9d4",
+          "length": 193000,
+          "number": "14",
+          "position": 14,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "b0b0bf76-81fc-4395-aa5d-074e68d8b967",
+            "isrcs": [
+              "USCA28900530"
+            ],
+            "length": 193000,
+            "title": "Jeru",
+            "video": false
+          },
+          "title": "Jeru"
+        },
+        {
+          "id": "fa1ff419-4763-4fe9-91f5-a49df3b5e939",
+          "length": 194000,
+          "number": "15",
+          "position": 15,
+          "recording": {
+            "disambiguation": "studio, 1952-05-09: WOR Studios, New York City, NY, USA",
+            "first-release-date": "1952",
+            "id": "486c13e4-576a-4aa0-b812-0d10ad4b3702",
+            "isrcs": [
+              "USBN28800199"
+            ],
+            "length": 193146,
+            "title": "Donna",
+            "video": false
+          },
+          "title": "Donna"
+        },
+        {
+          "id": "91fe5697-0fc9-4ccc-979e-15accf65eecd",
+          "length": 193000,
+          "number": "16",
+          "position": 16,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "efe3c6b1-7e49-4aff-af7a-5a0d07b03a55",
+            "isrcs": [
+              "USCA29800228"
+            ],
+            "length": 193000,
+            "title": "Jeru (remastered)",
+            "video": false
+          },
+          "title": "Jeru (remastered)"
+        },
+        {
+          "id": "fb4d69fc-d732-4d69-a4c3-6e0532462145",
+          "length": 224000,
+          "number": "17",
+          "position": 17,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "1953",
+            "id": "81168d85-4a5b-4f55-94ff-cbee17de3d6b",
+            "isrcs": [
+              "USBN28900214"
+            ],
+            "length": 223320,
+            "title": "Ray’s Idea",
+            "video": false
+          },
+          "title": "Ray’s Idea"
+        },
+        {
+          "id": "54ee6037-8a35-4c65-a863-b1d86619caa8",
+          "length": 280000,
+          "number": "18",
+          "position": 18,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "2f469974-247f-4645-9ffe-886ad0efca0a",
+            "isrcs": [
+              "USBN28800202"
+            ],
+            "length": 280000,
+            "title": "Woody ’n You (alternate take)",
+            "video": false
+          },
+          "title": "Woody ’n You (alternate take)"
+        },
+        {
+          "id": "5de47dc7-7f5e-4c70-8210-49b7e6b11fad",
+          "length": 205000,
+          "number": "19",
+          "position": 19,
+          "recording": {
+            "disambiguation": "live, 1948-09-04: Royal Roost, New York, US",
+            "first-release-date": "1998-05-19",
+            "id": "3e1fe074-596d-4f1d-a05d-7b8710f4fcef",
+            "isrcs": [
+              "USBN29800141"
+            ],
+            "length": 206493,
+            "title": "Budo (Hallucination)",
+            "video": false
+          },
+          "title": "Budo (Hallucinations) (live at the Royal Rooster, New York, September 4, 1948 / remastered)"
+        },
+        {
+          "id": "cf4f9fb0-bee4-454b-900a-e3304a3dd205",
+          "length": 215000,
+          "number": "20",
+          "position": 20,
+          "recording": {
+            "disambiguation": "studio, 1953-04-20",
+            "first-release-date": "1953",
+            "id": "68b79635-3ef9-450f-8591-10ac26e5e2b5",
+            "isrcs": [
+              "DEU240819376",
+              "USBN28900216"
+            ],
+            "length": 214173,
+            "title": "C.T.A.",
+            "video": false
+          },
+          "title": "C.T.A."
+        },
+        {
+          "id": "ef247ba0-6dd9-460e-aa8c-eb5b00b9ead6",
+          "length": 205000,
+          "number": "21",
+          "position": 21,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2015",
+            "id": "fe09a0f0-23ea-4022-951f-e92d0967a8c0",
+            "isrcs": [
+              "USBN28900212"
+            ],
+            "length": 205000,
+            "title": "Enigma",
+            "video": false
+          },
+          "title": "Enigma"
+        },
+        {
+          "id": "38f91a35-28a1-45d4-b99d-01d17d79d0b1",
+          "length": 203000,
+          "number": "22",
+          "position": 22,
+          "recording": {
+            "disambiguation": "studio, 1950-03-09: WOR Studios, New York, US",
+            "first-release-date": "1980-09-03",
+            "id": "d99203c2-a6b1-49aa-b5a8-96dd1d281049",
+            "isrcs": [
+              "USCA20000990",
+              "USCA29800238"
+            ],
+            "length": 204933,
+            "title": "Darn That Dream",
+            "video": false
+          },
+          "title": "Darn That Dream (remastered)"
+        },
+        {
+          "id": "4897e377-0ffa-4593-9a4a-0f6dd4d16e1f",
+          "length": 241000,
+          "number": "23",
+          "position": 23,
+          "recording": {
+            "disambiguation": "studio, 1954-03-06: Hackensack (NJ), US",
+            "first-release-date": "1954",
+            "id": "61632dca-dc8d-41b0-8ebc-08a8ff161ed4",
+            "isrcs": [
+              "DEU240819380",
+              "USBN29800341"
+            ],
+            "length": 242466,
+            "title": "Lazy Susan",
+            "video": false
+          },
+          "title": "Lazy Susan (remastered 1998)"
+        },
+        {
+          "id": "ee029589-75fb-4bdc-abd8-b04207837aa6",
+          "length": 206000,
+          "number": "24",
+          "position": 24,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "7df8b163-7c0d-470c-8796-2a6847c1dc00",
+            "isrcs": [
+              "USIR20200304"
+            ],
+            "length": 206000,
+            "title": "Gloria’s Story (The Hot Spot / Soundtrack version)",
+            "video": false
+          },
+          "title": "Gloria’s Story (The Hot Spot / soundtrack version)"
+        },
+        {
+          "id": "58bcd02b-66d1-4989-ad38-e32bb3eaa5a9",
+          "length": 209000,
+          "number": "25",
+          "position": 25,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "1953",
+            "id": "f8c93295-11f7-4f2a-b394-32914aa7b1ef",
+            "isrcs": [
+              "DEU240819378",
+              "USBN28900217",
+              "USBN29800336"
+            ],
+            "length": 210600,
+            "title": "I Waited for You",
+            "video": false
+          },
+          "title": "I Waited for You (Rudy Van Gelder edition / remastered 1998)"
+        },
+        {
+          "id": "47d63618-592f-4150-867c-f3bd5959c302",
+          "length": 221000,
+          "number": "26",
+          "position": 26,
+          "recording": {
+            "disambiguation": "live, 1948-09-04: Royal Roost, New York, US",
+            "first-release-date": "1998-05-19",
+            "id": "88e1325a-97dd-42f1-8cae-28153769647e",
+            "isrcs": [
+              "USBN29800136"
+            ],
+            "length": 222026,
+            "title": "Why Do I Love You",
+            "video": false
+          },
+          "title": "Why Do I Love You (live at the Royal Rooster, New York, September 4, 1948 / remastered)"
+        },
+        {
+          "id": "7fdd7459-9696-4d44-a6a4-3ddad6668972",
+          "length": 229000,
+          "number": "27",
+          "position": 27,
+          "recording": {
+            "disambiguation": "WOR Studios, NY, US: 1953-4-20 (take 1?)",
+            "first-release-date": "1953",
+            "id": "c33e9e9d-e52a-44ba-9b94-ea25b8a08776",
+            "isrcs": [
+              "DEU240819374",
+              "USBN28400124",
+              "USLIC0500314"
+            ],
+            "length": 232000,
+            "title": "Tempus Fugit",
+            "video": false
+          },
+          "title": "Tempus Fugit"
+        },
+        {
+          "id": "84dadd60-3722-464a-9de9-58e9430b1c65",
+          "length": 222000,
+          "number": "28",
+          "position": 28,
+          "recording": {
+            "disambiguation": "studio, 1954-03-06: Hackensack (NJ), US",
+            "first-release-date": "1954",
+            "id": "ee693cc9-4000-4602-bf6d-d2aaa76170dc",
+            "isrcs": [
+              "DEU240819379",
+              "USBN28800206"
+            ],
+            "length": 220626,
+            "title": "Take Off",
+            "video": false
+          },
+          "title": "Take Off"
+        },
+        {
+          "id": "6554ccf0-ad51-4902-b282-58fee552318b",
+          "length": 225000,
+          "number": "29",
+          "position": 29,
+          "recording": {
+            "disambiguation": "studio, 1952-05-09: WOR Studios, New York City, NY, USA",
+            "first-release-date": "1952",
+            "id": "fb8eddbb-a614-44ff-b6bb-1e682fd80190",
+            "isrcs": [
+              "DEU240815322",
+              "USBN28800204"
+            ],
+            "length": 225000,
+            "title": "Yesterdays",
+            "video": false
+          },
+          "title": "Yesterdays"
+        },
+        {
+          "id": "3c13ac72-f26c-4abb-8719-bb091cfd856c",
+          "length": 245000,
+          "number": "30",
+          "position": 30,
+          "recording": {
+            "disambiguation": "studio, 1954-03-06: Van Gelder Studio, Hackensack, NJ, USA",
+            "first-release-date": "1954",
+            "id": "ec768887-f470-4eb8-aaff-95fcc190d773",
+            "isrcs": [
+              "DEU240819384",
+              "FR8X00900728",
+              "USBN28500103",
+              "USBN29800343",
+              "USLIC0700466"
+            ],
+            "length": 243000,
+            "title": "It Never Entered My Mind",
+            "video": false
+          },
+          "title": "It Never Entered My Mind"
+        },
+        {
+          "id": "765cb329-5115-44dc-b1a1-b678ded8549a",
+          "length": 253000,
+          "number": "31",
+          "position": 31,
+          "recording": {
+            "disambiguation": "studio, 1952-05-09: WOR Studios, New York City, NY, USA",
+            "first-release-date": "1952",
+            "id": "36398c22-29ee-40d3-8a1a-d49e9f0936b4",
+            "isrcs": [
+              "DEU240815316",
+              "FR8X00900719",
+              "GBAWA0623622",
+              "USBN28800198"
+            ],
+            "length": 252826,
+            "title": "Dear Old Stockholm",
+            "video": false
+          },
+          "title": "Dear Old Stockholm"
+        },
+        {
+          "id": "b33c31d5-8904-47d3-90bb-b4c80b6f172a",
+          "length": 263000,
+          "number": "32",
+          "position": 32,
+          "recording": {
+            "disambiguation": "live, 1948-09-04: Royal Roost, New York, US",
+            "first-release-date": "1998-05-19",
+            "id": "26ba5e6f-9941-42c2-b913-cee7b8f97c75",
+            "isrcs": [
+              "USBN29800139"
+            ],
+            "length": 263426,
+            "title": "S’il vous plaît",
+            "video": false
+          },
+          "title": "S’il vous plaît (live at the Royal Rooster, New York, September 4, 1948 / remastered)"
+        },
+        {
+          "id": "b0862806-1c94-45b7-93a2-31111d50ccb3",
+          "length": 278000,
+          "number": "33",
+          "position": 33,
+          "recording": {
+            "disambiguation": "studio, 1952-05-09: WOR Studios, New York City, NY, USA",
+            "first-release-date": "1952",
+            "id": "27bc0058-bfc1-44c9-9e2b-dee40e8f1f93",
+            "isrcs": [
+              "USBN28800203"
+            ],
+            "length": 279613,
+            "title": "How Deep Is the Ocean",
+            "video": false
+          },
+          "title": "How Deep Is the Ocean"
+        },
+        {
+          "id": "c1c402b3-7a7a-410a-82ce-f0c61f95b30e",
+          "length": 284000,
+          "number": "34",
+          "position": 34,
+          "recording": {
+            "disambiguation": "studio, 1954-03-06: Hackensack (NJ), US",
+            "first-release-date": "1954",
+            "id": "6a0d6337-5960-44b1-81ef-07cea39fbaf5",
+            "isrcs": [
+              "DEU240819383",
+              "USBN28800207"
+            ],
+            "length": 284866,
+            "title": "Weirdo",
+            "video": false
+          },
+          "title": "Weirdo"
+        },
+        {
+          "id": "3c9d3f63-86ea-45ff-9ff8-ea3f8cc8fda0",
+          "length": 271000,
+          "number": "35",
+          "position": 35,
+          "recording": {
+            "disambiguation": "studio, 1954-03-06: Hackensack (NJ), US",
+            "first-release-date": "1954",
+            "id": "a142cc6b-a24a-473b-9057-4b90a73fa9de",
+            "isrcs": [
+              "DEU240819381",
+              "FR8X00900727",
+              "USBN28800210"
+            ],
+            "length": 271640,
+            "title": "The Leap",
+            "video": false
+          },
+          "title": "The Leap"
+        },
+        {
+          "id": "1b388752-db20-41a9-8eb7-bdcc4dc5c7bf",
+          "length": 323000,
+          "number": "36",
+          "position": 36,
+          "recording": {
+            "disambiguation": "studio, 1954-03-06: Hackensack (NJ), US",
+            "first-release-date": "1954",
+            "id": "2e0301ec-dee3-4fc7-b51e-9b371aaecf8d",
+            "isrcs": [
+              "DEU240819382",
+              "USBN28800209"
+            ],
+            "length": 324000,
+            "title": "Well You Needn’t",
+            "video": false
+          },
+          "title": "Well You Needn’t"
+        },
+        {
+          "id": "04621f7d-c763-4eb8-ac58-93bd4daf59c4",
+          "length": 354000,
+          "number": "37",
+          "position": 37,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "3333bad1-5375-4aa0-b651-646055794a27",
+            "isrcs": [
+              "USBN20300719"
+            ],
+            "length": 354000,
+            "title": "Out of the Blue (live / remastered)",
+            "video": false
+          },
+          "title": "Out of the Blue (live / remastered)"
+        },
+        {
+          "id": "485a5ef2-9dbd-4074-98b4-6b60941498a7",
+          "length": 330000,
+          "number": "38",
+          "position": 38,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "ecc23094-1c8c-461b-8f20-717b4a590262",
+            "isrcs": [
+              "USBN20300725"
+            ],
+            "length": 330000,
+            "title": "Lady Bird (live / remastered)",
+            "video": false
+          },
+          "title": "Lady Bird (live / remastered)"
+        },
+        {
+          "id": "c96e11f3-49e9-4d07-bb16-35bf5ca02c2a",
+          "length": 323000,
+          "number": "39",
+          "position": 39,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "8b8b8c78-5cc0-462c-9835-24a42a6b5b7a",
+            "isrcs": [
+              "USIR20200308"
+            ],
+            "length": 323000,
+            "title": "End Credits / The Hot Spot (The Hot Spot / soundtrack version)",
+            "video": false
+          },
+          "title": "End Credits / The Hot Spot (The Hot Spot / soundtrack version)"
+        },
+        {
+          "id": "1114899a-3494-41c8-af43-bc224847bbf7",
+          "length": 434000,
+          "number": "40",
+          "position": 40,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2004-01-27",
+            "id": "de749554-9680-4b73-8ea7-f57fba08e639",
+            "isrcs": [
+              "USBN20300718"
+            ],
+            "length": 434000,
+            "title": "Down",
+            "video": false
+          },
+          "title": "Down (live at Birdland)"
+        },
+        {
+          "id": "ac6fe458-e117-471f-bf7d-91dc13c6e0a0",
+          "length": 454000,
+          "number": "41",
+          "position": 41,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2004-01-27",
+            "id": "593c31d2-c527-4d2f-84b2-36dda8d13247",
+            "isrcs": [
+              "USBN20300717"
+            ],
+            "length": 454000,
+            "title": "Half Nelson",
+            "video": false
+          },
+          "title": "Half Nelson (live at Birdland)"
+        },
+        {
+          "id": "b8dd986d-1c80-4b95-bacf-f1ad9a0dbf8b",
+          "length": 495000,
+          "number": "42",
+          "position": 42,
+          "recording": {
+            "disambiguation": "",
+            "first-release-date": "2022-08-25",
+            "id": "a7b5c93a-ef2f-45f3-805a-ebfed865f140",
+            "isrcs": [
+              "USBN25800213"
+            ],
+            "length": 495000,
+            "title": "Somethin’ Else",
+            "video": false
+          },
+          "title": "Somethin’ Else"
+        }
+      ]
+    }
+  ],
+  "packaging": "None",
+  "quality": "normal",
+  "status": "Official",
+  "title": "Hits and Rarities"
+}

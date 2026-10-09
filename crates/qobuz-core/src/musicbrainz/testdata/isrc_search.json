@@ -1,0 +1,473 @@
+{
+  "count": 9,
+  "created": "2026-10-09T11:37:30.243Z",
+  "offset": 0,
+  "recordings": [
+    {
+      "artist-credit": [
+        {
+          "artist": {
+            "disambiguation": "jazz trumpeter, bandleader, songwriter",
+            "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+            "name": "Miles Davis"
+          },
+          "name": "Miles Davis"
+        }
+      ],
+      "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+      "first-release-date": "2009",
+      "id": "832aba6d-7ac2-40f8-b0d8-2ecb7d47dec8",
+      "isrcs": [
+        "USSM15900118"
+      ],
+      "length": 572000,
+      "releases": [
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 1,
+          "country": "GB",
+          "date": "2009",
+          "disambiguation": "UK \"Definitive\" version by COLUMBIA/LEGACY. Made in EU.",
+          "id": "723f4d97-d88a-4d76-a323-f4c951e147fb",
+          "media": [
+            {
+              "format": "CD",
+              "id": "2f486288-5cc1-3161-ad59-473fe74c1567",
+              "position": 1,
+              "track": [
+                {
+                  "id": "66f8ffb8-f5db-346a-98b6-f0e85cef868e",
+                  "length": 572000,
+                  "number": "6",
+                  "title": "Flamenco Sketches (Alternate take)"
+                }
+              ],
+              "track-count": 6,
+              "track-offset": 5
+            }
+          ],
+          "release-group": {
+            "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+            "primary-type": "Album",
+            "title": "Kind of Blue"
+          },
+          "status": "Official",
+          "title": "Kind of Blue",
+          "track-count": 6
+        }
+      ],
+      "score": 100,
+      "title": "Flamenco Sketches (Alternate take)",
+      "video": null
+    },
+    {
+      "artist-credit": [
+        {
+          "artist": {
+            "disambiguation": "jazz trumpeter, bandleader, songwriter",
+            "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+            "name": "Miles Davis"
+          },
+          "name": "Miles Davis"
+        }
+      ],
+      "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+      "first-release-date": "1988",
+      "id": "bc80349a-c5d6-4d35-8d29-87d5b10e5d5d",
+      "isrcs": [
+        "USSM15900118"
+      ],
+      "length": 572093,
+      "releases": [
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 1,
+          "country": "XE",
+          "date": "2009",
+          "id": "844642e8-5ee3-4eed-b153-06fc69996f62",
+          "media": [
+            {
+              "format": "CD",
+              "id": "596bc8a9-7a9b-497a-98f9-5f4ea8c4d83b",
+              "position": 1,
+              "track": [
+                {
+                  "id": "9ca50fa3-6e01-41e9-9d04-a6129a4ed341",
+                  "length": 571000,
+                  "number": "6",
+                  "title": "Flamenco Sketches (Alternate Take)"
+                }
+              ],
+              "track-count": 6,
+              "track-offset": 5
+            }
+          ],
+          "release-group": {
+            "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+            "primary-type": "Album",
+            "title": "Kind of Blue"
+          },
+          "status": "Official",
+          "title": "Kind Of Blue",
+          "track-count": 6
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 2,
+          "country": "XW",
+          "date": "",
+          "disambiguation": "legacy edition",
+          "id": "0b84b56e-b0c6-4319-8d81-49cdd0ee3737",
+          "media": [
+            {
+              "format": "Digital Media",
+              "id": "701cd078-7a8e-3c2c-92c9-96265ddf0242",
+              "position": 1,
+              "track": [
+                {
+                  "id": "f1ed1172-369c-4b00-bee9-946ef3afc0d8",
+                  "length": 571000,
+                  "number": "6",
+                  "title": "Flamenco Sketches (alternate take)"
+                }
+              ],
+              "track-count": 15,
+              "track-offset": 5
+            }
+          ],
+          "release-group": {
+            "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+            "primary-type": "Album",
+            "title": "Kind of Blue"
+          },
+          "status": "Official",
+          "title": "Kind of Blue",
+          "track-count": 21
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 1,
+          "country": "XE",
+          "date": "1997",
+          "disambiguation": "Matrix: Sony Music S0106493510-0101 24 F9",
+          "id": "607ef674-142c-4a59-ba2b-9cdbc2b77264",
+          "media": [
+            {
+              "format": "CD",
+              "id": "bd051614-e39c-3e99-bf96-e6dae1e79d33",
+              "position": 1,
+              "track": [
+                {
+                  "id": "ca244ff4-e017-4161-95f0-049733ba4ec8",
+                  "length": 572000,
+                  "number": "6",
+                  "title": "Flamenco Sketches (alternate take)"
+                }
+              ],
+              "track-count": 6,
+              "track-offset": 5
+            }
+          ],
+          "release-group": {
+            "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+            "primary-type": "Album",
+            "title": "Kind of Blue"
+          },
+          "status": "Official",
+          "title": "Kind of Blue",
+          "track-count": 6
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 4,
+          "country": "GB",
+          "date": "1988",
+          "id": "3a651c1c-67d5-4786-8634-d0a52af3cd5c",
+          "media": [
+            {
+              "format": "CD",
+              "id": "73555cf8-2232-3c7f-bd24-7fb85d5ab295",
+              "position": 3,
+              "track": [
+                {
+                  "id": "57ebc9c3-a3fc-3d5c-94d9-634718b0b8a4",
+                  "length": 575493,
+                  "number": "1",
+                  "title": "Flamenco Sketches"
+                }
+              ],
+              "track-count": 9,
+              "track-offset": 0
+            }
+          ],
+          "release-group": {
+            "id": "738dfaed-ffe5-35cd-b546-ee40b1fcf126",
+            "primary-type": "Album",
+            "secondary-types": [
+              "Compilation"
+            ],
+            "title": "The Columbia Years 1955–1985"
+          },
+          "status": "Official",
+          "title": "The CBS Years 1955 - 1985",
+          "track-count": 35
+        }
+      ],
+      "score": 100,
+      "title": "Flamenco Sketches (alternate take)",
+      "video": null
+    },
+    {
+      "artist-credit": [
+        {
+          "artist": {
+            "disambiguation": "jazz trumpeter, bandleader, songwriter",
+            "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+            "name": "Miles Davis"
+          },
+          "name": "Miles Davis"
+        }
+      ],
+      "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+      "disambiguation": "studio, 1959-03-02: Columbia Studios, New York, NY, US",
+      "first-release-date": "1969",
+      "id": "272dbf93-1501-4650-bbde-627ff0588a73",
+      "isrcs": [
+        "USSM16900211",
+        "USBJN0920070",
+        "USSM15900113"
+      ],
+      "length": 564000,
+      "releases": [
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 2,
+          "country": "GB",
+          "date": "2019",
+          "id": "4640b05a-9a4f-462c-87f8-2e7afad4c582",
+          "media": [
+            {
+              "format": "CD",
+              "id": "a97520a3-cdef-46ec-beb7-c0bb52b86933",
+              "position": 2,
+              "track": [
+                {
+                  "id": "ae669a5a-2cab-4ec0-b6c7-9cf3a0342ada",
+                  "length": 549000,
+                  "number": "2",
+                  "title": "So What"
+                }
+              ],
+              "track-count": 8,
+              "track-offset": 1
+            }
+          ],
+          "release-group": {
+            "id": "51107920-cc7f-4b8d-a229-e800d0e1b4e0",
+            "primary-type": "Album",
+            "secondary-types": [
+              "Compilation"
+            ],
+            "title": "Three Classic Albums Plus (Second Set)"
+          },
+          "status": "Official",
+          "title": "Three Classic Albums Plus (Second Set)",
+          "track-count": 19
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "add compilations to this artist",
+                "id": "89ad4ac3-39f7-470e-963a-56509c546377",
+                "name": "Various Artists"
+              },
+              "name": "Various Artists"
+            }
+          ],
+          "artist-credit-id": "949a7fd5-fe73-3e8f-922e-01ff4ca958f7",
+          "count": 1,
+          "country": "US",
+          "date": "2000",
+          "id": "5b1933f2-c1fc-41d4-878b-57210c0ecd54",
+          "media": [
+            {
+              "format": "SACD",
+              "id": "a9caab45-d907-4cc0-a40c-3da282c90174",
+              "position": 1,
+              "track": [
+                {
+                  "id": "54b2abae-ad18-4690-b003-aacf501c613b",
+                  "length": 560000,
+                  "number": "3",
+                  "title": "So What"
+                }
+              ],
+              "track-count": 9,
+              "track-offset": 2
+            }
+          ],
+          "release-group": {
+            "id": "0f913343-04ab-447d-aa1f-fdd062e332c7",
+            "primary-type": "Album",
+            "secondary-types": [
+              "Compilation"
+            ],
+            "title": "Sony Music Super Audio CD Sampler"
+          },
+          "status": "Promotion",
+          "title": "Sony Music Super Audio CD Sampler",
+          "track-count": 9
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 1,
+          "country": "GB",
+          "date": "2005",
+          "id": "c5db7ff3-9746-4874-a281-b909deb10165",
+          "media": [
+            {
+              "format": "Mixed Mode CD",
+              "id": "79afcf8c-6a4a-4127-a9a7-b14df305fe54",
+              "position": 1,
+              "track": [
+                {
+                  "id": "0fc07742-45cb-4e50-b5bf-24c8018f00f4",
+                  "length": 565000,
+                  "number": "CD1",
+                  "title": "So What"
+                }
+              ],
+              "track-count": 6,
+              "track-offset": 0
+            }
+          ],
+          "release-group": {
+            "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+            "primary-type": "Album",
+            "title": "Kind of Blue"
+          },
+          "status": "Official",
+          "title": "Kind of Blue",
+          "track-count": 6
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis"
+              },
+              "name": "Miles Davis"
+            }
+          ],
+          "artist-credit-id": "7e5a5673-c1a3-3782-942d-c7693533e532",
+          "count": 2,
+          "id": "858243c5-023f-467b-ab16-2ab9dcd7f028",
+          "media": [
+            {
+              "format": "CD",
+              "id": "f64cbf60-3418-3ee9-8e40-6a5aec4c243f",
+              "position": 1,
+              "track": [
+                {
+                  "id": "41549069-f3b7-40b4-bb64-f41ab5a35209",
+                  "length": 563866,
+                  "number": "6",
+                  "title": "So What"
+                }
+              ],
+              "track-count": 10,
+              "track-offset": 5
+            }
+          ],
+          "release-group": {
+            "id": "d74c3294-7159-42e3-b5e1-aecc70d8102a",
+            "primary-type": "Album",
+            "secondary-types": [
+              "Compilation"
+            ],
+            "title": "Le Meilleur de Miles Davis"
+          },
+          "status": "Official",
+          "title": "Le Meilleur de Miles Davis",
+          "track-count": 19
+        }
+      ],
+      "score": 98,
+      "title": "So What",
+      "video": null
+    }
+  ]
+}

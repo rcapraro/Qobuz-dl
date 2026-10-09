@@ -313,6 +313,8 @@ pub struct App {
     collapsed: HashSet<String>,
     /// An album's tag editor, shown on the Queue tab in place of the list.
     tag_editor: Option<EditorSlot>,
+    /// The running Fill from MusicBrainz, aborted when the editor closes.
+    musicbrainz: Option<iced::task::Handle>,
     rename: Option<RenameState>,
     downloading: bool,
     /// Track ids of the running (or last) batch, so its outcome counts only
@@ -421,6 +423,13 @@ enum Message {
     CoverPlanned(Result<CoverPlan, String>),
     TagsSaved(i64, Result<Saved, String>),
     CloseTagEditor,
+    FillFromMusicBrainz,
+    /// Stops a MusicBrainz lookup at any step, changing no field.
+    CancelLookup,
+    /// Keyed by album id so a lookup for an editor since closed is dropped.
+    MusicBrainz(String, tasks::LookupEvent),
+    ChooseRelease(usize),
+    MusicBrainzCover(String, Result<Option<Vec<u8>>, String>),
 
     // Rename folder.
     RenameFolder(String),
@@ -488,6 +497,7 @@ impl App {
             queue: Vec::new(),
             collapsed: HashSet::new(),
             tag_editor: None,
+            musicbrainz: None,
             rename: None,
             downloading: false,
             batch: Vec::new(),
@@ -1105,7 +1115,7 @@ impl App {
             }
             Message::Editor(edit) => {
                 if let Some(editor) = self.open_editor_mut() {
-                    if editor.saving.is_none() {
+                    if !editor.busy() {
                         editor.apply(edit);
                     }
                 }
@@ -1114,9 +1124,9 @@ impl App {
             Message::PickCover => Task::perform(tasks::pick_cover(), Message::CoverPicked),
             Message::CoverPicked(Ok(Some(image))) => {
                 let size = self.config.cover_size;
-                // A save in progress ends by reloading the files, which would
-                // drop a cover picked meanwhile without saving it.
-                if let Some(editor) = self.open_editor_mut().filter(|e| e.saving.is_none()) {
+                // A save ends by reloading the files, and a MusicBrainz fill may
+                // replace the cover: either would drop one picked meanwhile.
+                if let Some(editor) = self.open_editor_mut().filter(|e| !e.busy()) {
                     editor.replace_cover(image, size);
                 }
                 Task::none()
@@ -1166,7 +1176,45 @@ impl App {
                     .is_some_and(|editor| editor.saving.is_some());
                 if !saving {
                     self.tag_editor = None;
+                    if let Some(lookup) = self.musicbrainz.take() {
+                        lookup.abort();
+                    }
                 }
+                Task::none()
+            }
+            Message::FillFromMusicBrainz => self.fill_from_musicbrainz(),
+            Message::CancelLookup => {
+                if let Some(lookup) = self.musicbrainz.take() {
+                    lookup.abort();
+                }
+                if let Some(editor) = self.open_editor_mut() {
+                    editor.end_lookup();
+                }
+                Task::none()
+            }
+            Message::MusicBrainz(album_id, event) => self.musicbrainz_event(album_id, event),
+            Message::ChooseRelease(index) => {
+                let Some(chosen) = self.open_editor_mut().and_then(|e| e.choose(index)) else {
+                    return Task::none();
+                };
+                self.release_chosen(chosen)
+            }
+            Message::MusicBrainzCover(album_id, result) => {
+                self.musicbrainz = None;
+                let size = self.config.cover_size;
+                let Some(editor) = self.open_editor_mut().filter(|e| e.album_id == album_id) else {
+                    return Task::none();
+                };
+                self.status = Some(match result {
+                    Ok(cover) => match editor.cover_fetched(cover, size) {
+                        Some(filled) => Status::success(filled.status()),
+                        None => return Task::none(),
+                    },
+                    Err(e) => {
+                        editor.end_lookup();
+                        Status::error(format!("Could not fetch the MusicBrainz cover: {e}"))
+                    }
+                });
                 Task::none()
             }
             Message::RenameFolder(album_id) => self.open_rename(album_id),
@@ -1408,7 +1456,83 @@ impl App {
     /// Everything [`App::can_save_tags`] checks but whether there are edits,
     /// for a view that has already worked that out.
     fn save_ready(&self, editor: &TagEditor) -> bool {
-        editor.saving.is_none() && !editor.has_invalid() && self.tags_editable(&editor.album_id)
+        !editor.busy() && !editor.has_invalid() && self.tags_editable(&editor.album_id)
+    }
+
+    fn fill_from_musicbrainz(&mut self) -> Task<Message> {
+        let Some(editor) = self.open_editor_mut() else {
+            return Task::none();
+        };
+        let Some(album) = editor.start_lookup() else {
+            return Task::none();
+        };
+        let album_id = editor.album_id.clone();
+        let (task, handle) = Task::run(tasks::musicbrainz_lookup(album), move |event| {
+            Message::MusicBrainz(album_id.clone(), event)
+        })
+        .abortable();
+        self.musicbrainz = Some(handle);
+        task
+    }
+
+    fn musicbrainz_event(&mut self, album_id: String, event: tasks::LookupEvent) -> Task<Message> {
+        let Some(editor) = self
+            .open_editor_mut()
+            .filter(|e| e.album_id == album_id && e.searching())
+        else {
+            return Task::none();
+        };
+        let found = match event {
+            tasks::LookupEvent::Step(step) => {
+                editor.lookup_step(step);
+                return Task::none();
+            }
+            tasks::LookupEvent::Found(Ok(candidates)) => {
+                let Some(found) = editor.found(candidates) else {
+                    return Task::none();
+                };
+                found
+            }
+            tasks::LookupEvent::Found(Err(e)) => {
+                editor.end_lookup();
+                self.musicbrainz = None;
+                self.status = Some(Status::error(format!("MusicBrainz lookup failed: {e}")));
+                return Task::none();
+            }
+        };
+        self.musicbrainz = None;
+        match found {
+            tag_editor::Found::Nothing => {
+                self.status = Some(Status::error(
+                    "No MusicBrainz release matches this album: none has its barcode, \
+                     its ISRCs, or its title with the same track count. No field was changed.",
+                ));
+                Task::none()
+            }
+            tag_editor::Found::Choosing => Task::none(),
+            tag_editor::Found::Chosen(chosen) => self.release_chosen(chosen),
+        }
+    }
+
+    fn release_chosen(&mut self, chosen: tag_editor::Chosen) -> Task<Message> {
+        match chosen {
+            tag_editor::Chosen::Filled(filled) => {
+                self.status = Some(Status::success(filled.status()));
+                Task::none()
+            }
+            tag_editor::Chosen::NeedsCover(release_id) => {
+                let Some(album_id) = self.open_editor().map(|e| e.album_id.clone()) else {
+                    return Task::none();
+                };
+                let (task, handle) =
+                    Task::perform(tasks::musicbrainz_cover(release_id), move |cover| {
+                        Message::MusicBrainzCover(album_id.clone(), cover)
+                    })
+                    .abortable();
+                self.musicbrainz = Some(handle);
+                task
+            }
+        }
     }
 
     /// Save the next file, or report the finished save and read the files
@@ -2769,6 +2893,212 @@ mod tests {
         let _ = app.update(Message::CoverPicked(Ok(Some(vec![1, 2, 3]))));
         let editor = app.open_editor().unwrap();
         assert_eq!(editor.resize, Some(qobuz_core::CoverSize::Px500));
+    }
+
+    /// An editor on album "a" whose one file is track 1, with Fill from
+    /// MusicBrainz started; its task is never run.
+    fn looking_up() -> App {
+        looking_up_with_cover(false)
+    }
+
+    /// `looking_up()`, with Include cover ticked before the fill starts.
+    fn looking_up_with_cover(include_cover: bool) -> App {
+        let mut app = app();
+        app.queue = vec![done_at(1, "a", "/m/a/1.flac")];
+        let _ = app.update(Message::EditTags("a".into()));
+        let job = app.queue[0].job.clone();
+        let mut file = qobuz_core::tag_edit::TagFields::default();
+        file.values
+            .insert(qobuz_core::tag_edit::Field::TrackNumber, "1".into());
+        let read = vec![(job, PathBuf::from("/m/a/1.flac"), Ok(file))];
+        let _ = app.update(Message::TagsRead("a".into(), Ok(read)));
+        let _ = app.update(Message::Editor(tag_editor::Edit::IncludeCover(
+            include_cover,
+        )));
+        let _ = app.update(Message::FillFromMusicBrainz);
+        assert!(app.musicbrainz.is_some());
+        app
+    }
+
+    fn found(candidates: Vec<qobuz_core::musicbrainz::Candidate>) -> Message {
+        Message::MusicBrainz("a".into(), tasks::LookupEvent::Found(Ok(candidates)))
+    }
+
+    /// A release whose one track is track 1.
+    fn candidate(id: &str) -> qobuz_core::musicbrainz::Candidate {
+        use qobuz_core::musicbrainz::{Candidate, Medium, Release, ReleaseTrack};
+        let track = ReleaseTrack {
+            position: 1,
+            ..Default::default()
+        };
+        Candidate {
+            release: Release {
+                id: id.into(),
+                title: "Kind of Blue".into(),
+                media: vec![Medium {
+                    position: 1,
+                    track_count: 1,
+                    tracks: vec![track],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            confidence: 90,
+        }
+    }
+
+    fn album_title(app: &App) -> String {
+        let editor = app.open_editor().unwrap();
+        editor
+            .album_field(qobuz_core::tag_edit::Field::Album)
+            .text
+            .clone()
+    }
+
+    #[test]
+    fn save_waits_for_a_lookup() {
+        let mut app = looking_up();
+        let _ = app.update(Message::Editor(tag_editor::Edit::TrackText(
+            1,
+            qobuz_core::tag_edit::Field::Title,
+            "New".into(),
+        )));
+        assert!(!app.can_save_tags());
+    }
+
+    #[test]
+    fn a_single_release_fills_and_reports() {
+        let mut app = looking_up();
+        let _ = app.update(found(vec![candidate("r1")]));
+        assert_eq!(album_title(&app), "Kind of Blue");
+        assert!(app.musicbrainz.is_none());
+        let status = app.status.as_ref().unwrap();
+        assert_eq!(status.kind, status::StatusKind::Success);
+        assert!(status.text.contains("90 % match"), "{}", status.text);
+    }
+
+    #[test]
+    fn several_releases_wait_for_a_choice() {
+        let mut app = looking_up();
+        let _ = app.update(found(vec![candidate("r1"), candidate("r2")]));
+        assert!(album_title(&app).is_empty());
+        let _ = app.update(Message::ChooseRelease(0));
+        assert_eq!(album_title(&app), "Kind of Blue");
+    }
+
+    #[test]
+    fn a_failed_lookup_changes_nothing() {
+        let mut app = looking_up();
+        let failed = tasks::LookupEvent::Found(Err("network error".into()));
+        let _ = app.update(Message::MusicBrainz("a".into(), failed));
+        let editor = app.open_editor().unwrap();
+        assert!(editor.lookup.is_none());
+        assert!(!editor.has_edits());
+        assert_eq!(
+            app.status.as_ref().map(|s| s.kind),
+            Some(status::StatusKind::Error)
+        );
+    }
+
+    #[test]
+    fn nothing_found_is_an_error() {
+        let mut app = looking_up();
+        let _ = app.update(found(Vec::new()));
+        assert!(!app.open_editor().unwrap().busy());
+        assert_eq!(
+            app.status.as_ref().map(|s| s.kind),
+            Some(status::StatusKind::Error)
+        );
+    }
+
+    #[test]
+    fn a_musicbrainz_cover_takes_the_download_size() {
+        let mut app = looking_up_with_cover(true);
+        app.config.cover_size = qobuz_core::CoverSize::Px500;
+        let _ = app.update(found(vec![candidate("r1")]));
+        assert!(app.musicbrainz.is_some(), "the cover is being fetched");
+        assert!(album_title(&app).is_empty());
+
+        let _ = app.update(Message::MusicBrainzCover(
+            "a".into(),
+            Ok(Some(vec![1, 2, 3])),
+        ));
+        let editor = app.open_editor().unwrap();
+        assert_eq!(editor.resize, Some(qobuz_core::CoverSize::Px500));
+        assert_eq!(album_title(&app), "Kind of Blue");
+    }
+
+    #[test]
+    fn a_search_can_be_cancelled() {
+        let mut app = looking_up();
+        let _ = app.update(Message::CancelLookup);
+        assert!(app.musicbrainz.is_none());
+        let editor = app.open_editor().unwrap();
+        assert!(!editor.busy());
+        assert!(!editor.has_edits());
+    }
+
+    #[test]
+    fn a_cover_download_can_be_cancelled() {
+        let mut app = looking_up_with_cover(true);
+        let _ = app.update(found(vec![candidate("r1")]));
+        assert!(app.open_editor().unwrap().busy());
+
+        let _ = app.update(Message::CancelLookup);
+        assert!(app.musicbrainz.is_none());
+        assert!(!app.open_editor().unwrap().busy());
+        assert!(album_title(&app).is_empty(), "nothing is filled");
+
+        let _ = app.update(Message::MusicBrainzCover("a".into(), Ok(Some(vec![1]))));
+        assert!(album_title(&app).is_empty(), "a late cover is dropped");
+    }
+
+    #[test]
+    fn input_waits_for_a_lookup() {
+        let mut app = looking_up();
+        let _ = app.update(Message::Editor(tag_editor::Edit::AlbumText(
+            qobuz_core::tag_edit::Field::Album,
+            "Typed".into(),
+        )));
+        let _ = app.update(Message::CoverPicked(Ok(Some(vec![1, 2, 3]))));
+        let editor = app.open_editor().unwrap();
+        assert!(album_title(&app).is_empty());
+        assert_eq!(editor.cover, qobuz_core::tag_edit::CoverAction::Keep);
+    }
+
+    #[test]
+    fn a_fetched_cover_ends_the_lookup_handle() {
+        let mut app = looking_up_with_cover(true);
+        let _ = app.update(found(vec![candidate("r1")]));
+        let _ = app.update(Message::MusicBrainzCover("a".into(), Ok(None)));
+        assert!(app.musicbrainz.is_none());
+    }
+
+    #[test]
+    fn a_failed_cover_changes_nothing() {
+        let mut app = looking_up_with_cover(true);
+        let _ = app.update(found(vec![candidate("r1")]));
+        let _ = app.update(Message::MusicBrainzCover("a".into(), Err("offline".into())));
+        let editor = app.open_editor().unwrap();
+        assert!(!editor.busy());
+        assert!(!editor.has_edits());
+    }
+
+    #[test]
+    fn closing_drops_the_lookup_and_its_late_result() {
+        let mut app = looking_up();
+        let _ = app.update(Message::CloseTagEditor);
+        assert!(app.tag_editor.is_none());
+        assert!(app.musicbrainz.is_none());
+
+        app = {
+            let mut reopened = editing();
+            reopened.musicbrainz = None;
+            reopened
+        };
+        let _ = app.update(found(vec![candidate("r1")]));
+        assert!(album_title(&app).is_empty(), "no lookup is running here");
+        assert!(app.status.is_none());
     }
 
     /// `editing()` with track 1's title changed and its save under way, the

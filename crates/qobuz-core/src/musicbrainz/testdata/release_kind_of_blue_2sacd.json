@@ -1,0 +1,1795 @@
+{
+  "artist-credit": [
+    {
+      "artist": {
+        "country": "US",
+        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+        "genres": [
+          {
+            "count": 3,
+            "disambiguation": "",
+            "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+            "name": "bebop"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "fe12b346-a10e-450f-bf81-fa20894b5ea2",
+            "name": "blues"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "6ed4e4d1-9a97-4e2c-b8df-083754f154f4",
+            "name": "classical"
+          },
+          {
+            "count": 10,
+            "disambiguation": "",
+            "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+            "name": "cool jazz"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "fe4ba6a1-9873-4fd0-a12b-a70c81818514",
+            "name": "funk"
+          },
+          {
+            "count": 7,
+            "disambiguation": "",
+            "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+            "name": "hard bop"
+          },
+          {
+            "count": 27,
+            "disambiguation": "",
+            "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+            "name": "jazz"
+          },
+          {
+            "count": 13,
+            "disambiguation": "",
+            "id": "2377ff19-83e7-4873-b425-dce6d1ad4ef4",
+            "name": "jazz fusion"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "f3c43ae8-839a-4523-b295-cfa4eba6c911",
+            "name": "jazz-funk"
+          },
+          {
+            "count": 11,
+            "disambiguation": "",
+            "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+            "name": "modal jazz"
+          },
+          {
+            "count": 4,
+            "disambiguation": "",
+            "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+            "name": "post-bop"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "0e3fc579-2d24-4f20-9dae-736e1ec78798",
+            "name": "rock"
+          }
+        ],
+        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+        "name": "Miles Davis",
+        "type": "Person"
+      },
+      "joinphrase": "",
+      "name": "Miles Davis"
+    }
+  ],
+  "asin": "B00003XAQ5",
+  "barcode": "074646493564",
+  "country": "US",
+  "date": "2001-08-14",
+  "disambiguation": "",
+  "genres": [
+    {
+      "count": 1,
+      "disambiguation": "",
+      "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+      "name": "hard bop"
+    },
+    {
+      "count": 1,
+      "disambiguation": "",
+      "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+      "name": "jazz"
+    }
+  ],
+  "id": "6949dcd6-8630-490d-bdd6-d997b85014ac",
+  "label-info": [
+    {
+      "catalog-number": "CS 64935",
+      "label": {
+        "disambiguation": "owned by Sony Music Entertainment, worldwide except JP; formerly owned by CBS between 1938–1990 within US/CA/MX",
+        "genres": [
+          {
+            "count": 2,
+            "disambiguation": "",
+            "id": "ceeaa283-5d7b-4202-8d1d-e25d116b2a18",
+            "name": "alternative rock"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "445dc48f-5233-4b4f-987f-867ff9ade836",
+            "name": "folk rock"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "52856ec0-9f9b-45f4-ab09-1bb8cc0a98e4",
+            "name": "heartland rock"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "52faa157-6bad-4d86-a0ab-d4dec7d2513c",
+            "name": "hip hop"
+          },
+          {
+            "count": 2,
+            "disambiguation": "",
+            "id": "ccd19ebf-052c-4afe-8ad9-fbb0a73f94a7",
+            "name": "indie rock"
+          },
+          {
+            "count": 2,
+            "disambiguation": "",
+            "id": "146ef761-5ad9-48b4-b0b3-483104f7da48",
+            "name": "psychedelic rock"
+          },
+          {
+            "count": 2,
+            "disambiguation": "",
+            "id": "0e3fc579-2d24-4f20-9dae-736e1ec78798",
+            "name": "rock"
+          }
+        ],
+        "id": "011d1192-6f65-45bd-85c4-0400dd45693e",
+        "label-code": 162,
+        "name": "Columbia",
+        "type": "Imprint"
+      }
+    },
+    {
+      "catalog-number": "CS 64935",
+      "label": {
+        "disambiguation": "reissue division of Sony Music Entertainment",
+        "genres": [
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "52faa157-6bad-4d86-a0ab-d4dec7d2513c",
+            "name": "hip hop"
+          },
+          {
+            "count": 1,
+            "disambiguation": "",
+            "id": "0e3fc579-2d24-4f20-9dae-736e1ec78798",
+            "name": "rock"
+          }
+        ],
+        "id": "45ffe1d8-92da-4750-9a4a-f42861f46e2c",
+        "label-code": 2361,
+        "name": "Legacy",
+        "type": "Reissue Production"
+      }
+    }
+  ],
+  "media": [
+    {
+      "format": "SACD (2 channels)",
+      "id": "db4616f7-89e3-3f55-a88f-bf2fe59b04ca",
+      "position": 1,
+      "title": "",
+      "track-count": 6,
+      "track-offset": 0,
+      "tracks": [
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "13ded76d-6583-4247-87d2-205c69beb2d6",
+          "length": 568000,
+          "number": "1",
+          "position": 1,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "studio, 1959-03-02: Columbia Studios, New York, NY, US",
+            "first-release-date": "1969",
+            "genres": [
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "ceeaa283-5d7b-4202-8d1d-e25d116b2a18",
+                "name": "alternative rock"
+              },
+              {
+                "count": 4,
+                "disambiguation": "",
+                "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+                "name": "bebop"
+              },
+              {
+                "count": 6,
+                "disambiguation": "",
+                "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+                "name": "cool jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "fe4ba6a1-9873-4fd0-a12b-a70c81818514",
+                "name": "funk"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "0caaa092-27c4-413e-841c-7c4deeec57a7",
+                "name": "funk metal"
+              },
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+                "name": "hard bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "4ae63770-68af-4fae-b0f1-5e53f372c743",
+                "name": "instrumental"
+              },
+              {
+                "count": 15,
+                "disambiguation": "",
+                "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+                "name": "jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+                "name": "modal jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "0c44a04f-f7ba-46a0-9dbe-1a21359cfa1e",
+                "name": "motown"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "848ecccf-e7fa-4439-a8ab-9dd3c31b4cf6",
+                "name": "nu jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+                "name": "post-bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "0e3fc579-2d24-4f20-9dae-736e1ec78798",
+                "name": "rock"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "a1f1dcc8-6078-4c12-90b7-47e3080e330c",
+                "name": "smooth jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "1b5e7b16-336b-473e-a364-5120413a9827",
+                "name": "soul"
+              }
+            ],
+            "id": "272dbf93-1501-4650-bbde-627ff0588a73",
+            "isrcs": [
+              "USBJN0920070",
+              "USSM15900113",
+              "USSM16900211"
+            ],
+            "length": 564000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": "1959-03-02",
+                "direction": "forward",
+                "end": "1959-03-02",
+                "ended": true,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "2fafd730-423f-342e-b6c7-3a7d6599a72e",
+                  "iswcs": [
+                    "T-073.092.797-5"
+                  ],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "So What",
+                  "type": null
+                }
+              }
+            ],
+            "title": "So What",
+            "video": false
+          },
+          "title": "So What"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "7db40f3e-0bd8-430e-a617-1ba11812ad93",
+          "length": 586000,
+          "number": "2",
+          "position": 2,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "first speed-correct stereo remix",
+            "first-release-date": "1987",
+            "genres": [
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+                "name": "bebop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "f0e90b41-4499-493f-b6e3-05d3c3ea1b20",
+                "name": "classic jazz"
+              },
+              {
+                "count": 5,
+                "disambiguation": "",
+                "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+                "name": "cool jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+                "name": "hard bop"
+              },
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "4ae63770-68af-4fae-b0f1-5e53f372c743",
+                "name": "instrumental"
+              },
+              {
+                "count": 15,
+                "disambiguation": "",
+                "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+                "name": "jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+                "name": "modal jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+                "name": "post-bop"
+              }
+            ],
+            "id": "6ea17013-fa68-4446-a2c7-7b864e366803",
+            "isrcs": [
+              "USSM15900114"
+            ],
+            "length": 588000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": "1959-03-02",
+                "direction": "forward",
+                "end": "1959-03-02",
+                "ended": true,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "original Miles Davis instrumental version",
+                  "id": "500ecdf1-a82e-3afc-9268-382bacca0923",
+                  "iswcs": [
+                    "T-073.092.747-5"
+                  ],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Freddie Freeloader",
+                  "type": null
+                }
+              }
+            ],
+            "title": "Freddie Freeloader",
+            "video": false
+          },
+          "title": "Freddie Freeloader"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "d566be6e-7a5d-4d19-b8e5-8b6ed2dea933",
+          "length": 336000,
+          "number": "3",
+          "position": 3,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "first speed-correct stereo remix",
+            "first-release-date": "1987",
+            "genres": [
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "ceeaa283-5d7b-4202-8d1d-e25d116b2a18",
+                "name": "alternative rock"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+                "name": "bebop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "f0e90b41-4499-493f-b6e3-05d3c3ea1b20",
+                "name": "classic jazz"
+              },
+              {
+                "count": 5,
+                "disambiguation": "",
+                "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+                "name": "cool jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "fe4ba6a1-9873-4fd0-a12b-a70c81818514",
+                "name": "funk"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+                "name": "hard bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "4ae63770-68af-4fae-b0f1-5e53f372c743",
+                "name": "instrumental"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "c1a4860e-720f-4f4c-8a54-a8032aac08fa",
+                "name": "instrumental jazz"
+              },
+              {
+                "count": 15,
+                "disambiguation": "",
+                "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+                "name": "jazz"
+              },
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+                "name": "modal jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "0c44a04f-f7ba-46a0-9dbe-1a21359cfa1e",
+                "name": "motown"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+                "name": "post-bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "0e3fc579-2d24-4f20-9dae-736e1ec78798",
+                "name": "rock"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "a1f1dcc8-6078-4c12-90b7-47e3080e330c",
+                "name": "smooth jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "1b5e7b16-336b-473e-a364-5120413a9827",
+                "name": "soul"
+              }
+            ],
+            "id": "8121ce09-135d-477d-aafb-0404f1f15b78",
+            "isrcs": [
+              "USSM15900115"
+            ],
+            "length": 337560,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": "1959-03-02",
+                "direction": "forward",
+                "end": "1959-03-02",
+                "ended": true,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "54d591f2-e928-3263-b963-d7943efb9a03",
+                  "iswcs": [
+                    "T-073.092.724-8"
+                  ],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    },
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "pianist",
+                        "id": "8247a3f2-3a8e-4256-b322-6c57b03a4e36",
+                        "name": "Bill Evans",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Blue in Green",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "Blue in Green",
+            "video": false
+          },
+          "title": "Blue in Green"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "6cba1e72-d3f1-491f-a0e8-74d2d10162ab",
+          "length": 695773,
+          "number": "4",
+          "position": 4,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "stereo",
+            "first-release-date": "1959-08-17",
+            "genres": [
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+                "name": "bebop"
+              },
+              {
+                "count": 6,
+                "disambiguation": "",
+                "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+                "name": "cool jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+                "name": "hard bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "4ae63770-68af-4fae-b0f1-5e53f372c743",
+                "name": "instrumental"
+              },
+              {
+                "count": 16,
+                "disambiguation": "",
+                "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+                "name": "jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+                "name": "modal jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+                "name": "post-bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "e70f0aa3-9531-448c-8182-7ff34e3d74f8",
+                "name": "soul jazz"
+              }
+            ],
+            "id": "b7ebe185-21e9-4400-a17a-3d0cee232925",
+            "isrcs": [
+              "USSM15900116"
+            ],
+            "length": 693800,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": "1959-04-22",
+                "direction": "forward",
+                "end": "1959-04-22",
+                "ended": true,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "46e6bfc3-5f37-3e6e-a2be-1938072b1375",
+                  "iswcs": [
+                    "T-039.266.451-5",
+                    "T-073.092.719-1"
+                  ],
+                  "language": "eng",
+                  "languages": [
+                    "eng"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "All Blues",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "All Blues",
+            "video": false
+          },
+          "title": "All Blues"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "7c887153-8ebb-4865-8bf7-0feb5c35b1ab",
+          "length": 564000,
+          "number": "5",
+          "position": 5,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "stereo",
+            "first-release-date": "1959-08-17",
+            "genres": [
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+                "name": "bebop"
+              },
+              {
+                "count": 7,
+                "disambiguation": "",
+                "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+                "name": "cool jazz"
+              },
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+                "name": "hard bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "4ae63770-68af-4fae-b0f1-5e53f372c743",
+                "name": "instrumental"
+              },
+              {
+                "count": 16,
+                "disambiguation": "",
+                "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+                "name": "jazz"
+              },
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+                "name": "modal jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+                "name": "post-bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "a1f1dcc8-6078-4c12-90b7-47e3080e330c",
+                "name": "smooth jazz"
+              }
+            ],
+            "id": "250b3f1d-7620-42a9-87b3-5d1a166e0f2f",
+            "isrcs": [
+              "USSM15900117"
+            ],
+            "length": 564800,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": "1959-04-22",
+                "direction": "forward",
+                "end": "1959-04-22",
+                "ended": true,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "36ff917b-6e10-3ee0-9e42-c46c80a82e1b",
+                  "iswcs": [],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    },
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "pianist",
+                        "id": "8247a3f2-3a8e-4256-b322-6c57b03a4e36",
+                        "name": "Bill Evans",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Flamenco Sketches",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "Flamenco Sketches",
+            "video": false
+          },
+          "title": "Flamenco Sketches"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "9d99a15a-0ef6-4910-b22c-a7e0cb2f36a2",
+          "length": 571000,
+          "number": "6",
+          "position": 6,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "1988",
+            "genres": [
+              {
+                "count": 2,
+                "disambiguation": "",
+                "id": "ac30756b-55a7-4dc3-8908-8f94c93318d0",
+                "name": "bebop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "f0e90b41-4499-493f-b6e3-05d3c3ea1b20",
+                "name": "classic jazz"
+              },
+              {
+                "count": 6,
+                "disambiguation": "",
+                "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+                "name": "cool jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+                "name": "hard bop"
+              },
+              {
+                "count": 13,
+                "disambiguation": "",
+                "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+                "name": "jazz"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "5eea976c-1ab2-4d94-9b63-7d1297d5dba5",
+                "name": "jazz rock"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "f3c43ae8-839a-4523-b295-cfa4eba6c911",
+                "name": "jazz-funk"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+                "name": "modal jazz"
+              },
+              {
+                "count": 3,
+                "disambiguation": "",
+                "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+                "name": "post-bop"
+              },
+              {
+                "count": 1,
+                "disambiguation": "",
+                "id": "a1f1dcc8-6078-4c12-90b7-47e3080e330c",
+                "name": "smooth jazz"
+              }
+            ],
+            "id": "bc80349a-c5d6-4d35-8d29-87d5b10e5d5d",
+            "isrcs": [
+              "USSM15900118"
+            ],
+            "length": 572093,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": "1959-04-22",
+                "direction": "forward",
+                "end": "1959-04-22",
+                "ended": true,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "36ff917b-6e10-3ee0-9e42-c46c80a82e1b",
+                  "iswcs": [],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    },
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "pianist",
+                        "id": "8247a3f2-3a8e-4256-b322-6c57b03a4e36",
+                        "name": "Bill Evans",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Flamenco Sketches",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "Flamenco Sketches (alternate take)",
+            "video": false
+          },
+          "title": "Flamenco Sketches (alternate take)"
+        }
+      ]
+    },
+    {
+      "format": "SACD (multichannel)",
+      "id": "24f49e1a-a668-382f-85d4-c24927729c81",
+      "position": 2,
+      "title": "",
+      "track-count": 6,
+      "track-offset": 0,
+      "tracks": [
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "cbd4ec70-8e78-4f64-9817-860e007f3680",
+          "length": 568000,
+          "number": "1",
+          "position": 1,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "2001-08-14",
+            "genres": [],
+            "id": "b173ad19-dc45-4e13-b047-7ff12bd7b073",
+            "isrcs": [],
+            "length": 565000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": null,
+                "direction": "forward",
+                "end": null,
+                "ended": false,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "2fafd730-423f-342e-b6c7-3a7d6599a72e",
+                  "iswcs": [
+                    "T-073.092.797-5"
+                  ],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "So What",
+                  "type": null
+                }
+              }
+            ],
+            "title": "So What (5.0 mix)",
+            "video": false
+          },
+          "title": "So What (5.0 mix)"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "f56847c1-637c-4210-be9e-4ca42bc7d432",
+          "length": 586000,
+          "number": "2",
+          "position": 2,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "2001-08-14",
+            "genres": [],
+            "id": "ad6a3cd5-9074-4347-824d-bb244f494a91",
+            "isrcs": [],
+            "length": 586000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": null,
+                "direction": "forward",
+                "end": null,
+                "ended": false,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "original Miles Davis instrumental version",
+                  "id": "500ecdf1-a82e-3afc-9268-382bacca0923",
+                  "iswcs": [
+                    "T-073.092.747-5"
+                  ],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Freddie Freeloader",
+                  "type": null
+                }
+              }
+            ],
+            "title": "Freddie Freeloader (5.0 mix)",
+            "video": false
+          },
+          "title": "Freddie Freeloader (5.0 mix)"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "385a556f-5f68-4516-a3c5-6f0e29439a80",
+          "length": 336000,
+          "number": "3",
+          "position": 3,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "2001-08-14",
+            "genres": [],
+            "id": "e5b97959-9ecf-4374-b42c-4c11061233d5",
+            "isrcs": [],
+            "length": 336000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": null,
+                "direction": "forward",
+                "end": null,
+                "ended": false,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "54d591f2-e928-3263-b963-d7943efb9a03",
+                  "iswcs": [
+                    "T-073.092.724-8"
+                  ],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    },
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "pianist",
+                        "id": "8247a3f2-3a8e-4256-b322-6c57b03a4e36",
+                        "name": "Bill Evans",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Blue in Green",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "Blue in Green (5.0 mix)",
+            "video": false
+          },
+          "title": "Blue in Green (5.0 mix)"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "c8f59b37-87c3-4ee6-a3cf-d8ac6a35b194",
+          "length": 696000,
+          "number": "4",
+          "position": 4,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "2001-08-14",
+            "genres": [],
+            "id": "b8c7ac50-d3dc-4942-bd2c-3760990ef43f",
+            "isrcs": [],
+            "length": 696000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": null,
+                "direction": "forward",
+                "end": null,
+                "ended": false,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "46e6bfc3-5f37-3e6e-a2be-1938072b1375",
+                  "iswcs": [
+                    "T-039.266.451-5",
+                    "T-073.092.719-1"
+                  ],
+                  "language": "eng",
+                  "languages": [
+                    "eng"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "All Blues",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "All Blues (5.0 mix)",
+            "video": false
+          },
+          "title": "All Blues (5.0 mix)"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "7aeb30f5-67e8-46a2-8623-f1e515edc9ec",
+          "length": 564000,
+          "number": "5",
+          "position": 5,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "2001-08-14",
+            "genres": [],
+            "id": "c1e861b7-af01-48eb-91dd-6b0b3988c382",
+            "isrcs": [],
+            "length": 564000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": null,
+                "direction": "forward",
+                "end": null,
+                "ended": false,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "36ff917b-6e10-3ee0-9e42-c46c80a82e1b",
+                  "iswcs": [],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    },
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "pianist",
+                        "id": "8247a3f2-3a8e-4256-b322-6c57b03a4e36",
+                        "name": "Bill Evans",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Flamenco Sketches",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "Flamenco Sketches (5.0 mix)",
+            "video": false
+          },
+          "title": "Flamenco Sketches (5.0 mix)"
+        },
+        {
+          "artist-credit": [
+            {
+              "artist": {
+                "country": "US",
+                "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                "name": "Miles Davis",
+                "type": "Person"
+              },
+              "joinphrase": "",
+              "name": "Miles Davis"
+            }
+          ],
+          "id": "63a994ae-2def-4a08-b88a-f98ffdd5a123",
+          "length": 571000,
+          "number": "6",
+          "position": 6,
+          "recording": {
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "US",
+                  "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                  "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                  "name": "Miles Davis",
+                  "type": "Person"
+                },
+                "joinphrase": "",
+                "name": "Miles Davis"
+              }
+            ],
+            "disambiguation": "",
+            "first-release-date": "2001-08-14",
+            "genres": [],
+            "id": "72a73a70-6f34-4523-b07b-70f8bac38537",
+            "isrcs": [],
+            "length": 571000,
+            "relations": [
+              {
+                "attributes": [],
+                "begin": null,
+                "direction": "forward",
+                "end": null,
+                "ended": false,
+                "target-type": "work",
+                "type": "performance",
+                "work": {
+                  "attributes": [],
+                  "disambiguation": "",
+                  "id": "36ff917b-6e10-3ee0-9e42-c46c80a82e1b",
+                  "iswcs": [],
+                  "language": "zxx",
+                  "languages": [
+                    "zxx"
+                  ],
+                  "relations": [
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "jazz trumpeter, bandleader, songwriter",
+                        "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+                        "name": "Miles Davis",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    },
+                    {
+                      "artist": {
+                        "country": "US",
+                        "disambiguation": "pianist",
+                        "id": "8247a3f2-3a8e-4256-b322-6c57b03a4e36",
+                        "name": "Bill Evans",
+                        "type": "Person"
+                      },
+                      "attributes": [],
+                      "begin": null,
+                      "direction": "backward",
+                      "end": null,
+                      "ended": false,
+                      "target-type": "artist",
+                      "type": "composer"
+                    }
+                  ],
+                  "title": "Flamenco Sketches",
+                  "type": "Song"
+                }
+              }
+            ],
+            "title": "Flamenco Sketches (alternate take, 5.0 mix)",
+            "video": false
+          },
+          "title": "Flamenco Sketches (alternate take, 5.0 mix)"
+        }
+      ]
+    }
+  ],
+  "packaging": "Jewel Case",
+  "quality": "normal",
+  "relations": [],
+  "release-group": {
+    "artist-credit": [
+      {
+        "artist": {
+          "country": "US",
+          "disambiguation": "jazz trumpeter, bandleader, songwriter",
+          "id": "561d854a-6a28-4aa7-8c99-323e6ce46c2a",
+          "name": "Miles Davis",
+          "type": "Person"
+        },
+        "joinphrase": "",
+        "name": "Miles Davis"
+      }
+    ],
+    "disambiguation": "",
+    "first-release-date": "1959-08-17",
+    "genres": [
+      {
+        "count": 7,
+        "disambiguation": "",
+        "id": "5fc86669-d9ba-4716-8090-eff39081090e",
+        "name": "cool jazz"
+      },
+      {
+        "count": 3,
+        "disambiguation": "",
+        "id": "8c083468-2dce-4a31-ae77-433af3deafd3",
+        "name": "hard bop"
+      },
+      {
+        "count": 28,
+        "disambiguation": "",
+        "id": "a715278f-1580-409f-8078-4ffbc800e08b",
+        "name": "jazz"
+      },
+      {
+        "count": 4,
+        "disambiguation": "",
+        "id": "ff60b411-27db-4bd3-a444-3afe92cbfa7e",
+        "name": "modal jazz"
+      },
+      {
+        "count": 2,
+        "disambiguation": "",
+        "id": "94ce0ba0-9043-4b5b-87d6-3c1a8458f75d",
+        "name": "post-bop"
+      }
+    ],
+    "id": "8e8a594f-2175-38c7-a871-abb68ec363e7",
+    "primary-type": "Album",
+    "secondary-types": [],
+    "title": "Kind of Blue"
+  },
+  "status": "Official",
+  "title": "Kind of Blue"
+}

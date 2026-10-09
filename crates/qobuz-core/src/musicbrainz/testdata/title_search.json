@@ -1,0 +1,504 @@
+{
+  "releases": [
+    {
+      "country": "GB",
+      "date": "2000-02-05",
+      "id": "f7600f65-1772-43e6-b889-ecf6287c985b",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 18
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 18
+        }
+      ],
+      "status": "Official",
+      "title": "Hickox Conducts Vaughan Williams",
+      "track-count": 36
+    },
+    {
+      "country": "XE",
+      "date": "2000",
+      "id": "8480adc6-791e-4f17-9138-fa7c063d1f81",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 18
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 18
+        }
+      ],
+      "status": null,
+      "title": "Hickox Conducts Vaughan Williams",
+      "track-count": 36
+    },
+    {
+      "country": "XE",
+      "date": "1999",
+      "id": "5e70120a-10b1-42e1-87eb-0a4937c12ac2",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 6
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 7
+        }
+      ],
+      "status": null,
+      "title": "Vaughan Williams",
+      "track-count": 13
+    },
+    {
+      "country": "XE",
+      "date": "1999",
+      "id": "ad44ba59-a599-4594-b951-60d4bc9cc9e8",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 6
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 7
+        }
+      ],
+      "status": null,
+      "title": "Vaughan Williams",
+      "track-count": 13
+    },
+    {
+      "country": null,
+      "date": null,
+      "id": "b90a65b1-f823-474b-be4c-c953f3e6945e",
+      "media": [
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 2
+        },
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 1
+        }
+      ],
+      "status": "Official",
+      "title": "Conducts Richard Strauss",
+      "track-count": 3
+    },
+    {
+      "country": "XW",
+      "date": "2002",
+      "id": "b3ba811b-3908-4c13-879c-da4173dae196",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 13
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 13
+        }
+      ],
+      "status": "Official",
+      "title": "Richard Hickox CBE - A Celebration",
+      "track-count": 26
+    },
+    {
+      "country": "GB",
+      "date": "2001-10-01",
+      "id": "49aa54a2-55c4-48af-b2bd-bba006589c74",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 9
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 12
+        }
+      ],
+      "status": "Official",
+      "title": "British Composers: Vaughan Williams",
+      "track-count": 21
+    },
+    {
+      "country": "GB",
+      "date": "2008-07-08",
+      "id": "f858106f-29a7-4601-8f17-493816c74cae",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 13
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 18
+        }
+      ],
+      "status": "Official",
+      "title": "The Essential Vaughan Williams",
+      "track-count": 31
+    },
+    {
+      "country": "US",
+      "date": "2006-01-01",
+      "id": "508726b5-ab83-4129-873f-315ee8e6a25a",
+      "media": [
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 10
+        },
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 6
+        }
+      ],
+      "status": "Official",
+      "title": "Composer’s Collection: Ralph Vaughan Williams",
+      "track-count": 16
+    },
+    {
+      "country": "US",
+      "date": "1999",
+      "id": "28b324cf-0b50-48ed-ab64-0afa75dabf2a",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 24
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 3
+        }
+      ],
+      "status": "Official",
+      "title": "Richard Strauss conducts his Tone Poems",
+      "track-count": 27
+    },
+    {
+      "country": null,
+      "date": null,
+      "id": "af2468e6-c7ea-4258-9fcc-6fad073ce658",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 6
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 18
+        }
+      ],
+      "status": null,
+      "title": "Vaughan Williams: The Lark Ascending, Tallis Fantasia",
+      "track-count": 24
+    },
+    {
+      "country": "XE",
+      "date": "2015",
+      "id": "3b6d1006-eab1-431e-8155-456aa2286956",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 12
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 13
+        }
+      ],
+      "status": "Official",
+      "title": "John Williams Conducts Music From Star Wars",
+      "track-count": 25
+    },
+    {
+      "country": "GB",
+      "date": "2009-09-28",
+      "id": "38d3442d-af08-4621-8ee5-534186e6a86d",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 10
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 12
+        }
+      ],
+      "status": "Official",
+      "title": "Within a Dream: A Celebration of the Artistry of Richard Hickox",
+      "track-count": 22
+    },
+    {
+      "country": "FR",
+      "date": "2001",
+      "id": "e4b31e8e-0952-4f9c-9fd6-46d91e7a376b",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 20
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 20
+        }
+      ],
+      "status": "Official",
+      "title": "Sarah Vaughan",
+      "track-count": 40
+    },
+    {
+      "country": "FR",
+      "date": "2001",
+      "id": "6d7a0513-a821-4bef-b441-27297e9e3334",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 23
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 19
+        }
+      ],
+      "status": "Official",
+      "title": "Cliff Richard",
+      "track-count": 42
+    },
+    {
+      "country": "US",
+      "date": "",
+      "id": "fce1ea5a-f2ca-4157-a6c4-287a43a8dcec",
+      "media": [
+        {
+          "format": "12\" Vinyl",
+          "position": null,
+          "track-count": 8
+        },
+        {
+          "format": "12\" Vinyl",
+          "position": null,
+          "track-count": 8
+        }
+      ],
+      "status": "Official",
+      "title": "Little Richard!!!",
+      "track-count": 16
+    },
+    {
+      "country": "US",
+      "date": "2014-01-14",
+      "id": "6f83bcf7-c5ba-41bf-bd2f-25b657572c9f",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 12
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 20
+        }
+      ],
+      "status": "Official",
+      "title": "Lucinda Williams",
+      "track-count": 32
+    },
+    {
+      "country": "XE",
+      "date": "2014",
+      "id": "2b9ca0b4-a44e-4ad0-b84b-d580cadb4d09",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 12
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 20
+        }
+      ],
+      "status": "Official",
+      "title": "Lucinda Williams",
+      "track-count": 32
+    },
+    {
+      "country": "US",
+      "date": "2014",
+      "id": "be9682c6-3854-4da1-ad36-a0a672c260a6",
+      "media": [
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 12
+        },
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 20
+        }
+      ],
+      "status": "Official",
+      "title": "Lucinda Williams",
+      "track-count": 32
+    },
+    {
+      "country": "US",
+      "date": "2012-08-12",
+      "id": "ca44f86c-5954-442f-bf9d-7a40eae40132",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 15
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 14
+        }
+      ],
+      "status": null,
+      "title": "Leona Williams",
+      "track-count": 29
+    },
+    {
+      "country": "XW",
+      "date": "2014-01-14",
+      "id": "c3720095-0019-4a0d-b513-b3bd8b72f6f0",
+      "media": [
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 12
+        },
+        {
+          "format": "Digital Media",
+          "position": null,
+          "track-count": 20
+        }
+      ],
+      "status": "Official",
+      "title": "Lucinda Williams",
+      "track-count": 32
+    },
+    {
+      "country": "US",
+      "date": "2014-01-14",
+      "id": "22d31751-9e69-475d-82a9-961e5b57d037",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 12
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 20
+        }
+      ],
+      "status": "Official",
+      "title": "Lucinda Williams",
+      "track-count": 32
+    },
+    {
+      "country": "US",
+      "date": "2006-09-16",
+      "id": "08a3e988-7006-4fef-9c1b-f7d9d1d961f1",
+      "media": [
+        {
+          "format": "Hybrid SACD (CD layer)",
+          "position": null,
+          "track-count": 24
+        },
+        {
+          "format": "Hybrid SACD (SACD layer, 2 channels)",
+          "position": null,
+          "track-count": 24
+        }
+      ],
+      "status": "Official",
+      "title": "Here’s Little Richard / Little Richard",
+      "track-count": 48
+    },
+    {
+      "country": null,
+      "date": null,
+      "id": "9002305f-8486-4e19-ab69-b8a428f8cf93",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 13
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 23
+        }
+      ],
+      "status": "Official",
+      "title": "Plays & Conducts",
+      "track-count": 36
+    },
+    {
+      "country": "US",
+      "date": "2000-08-01",
+      "id": "1ba8ba36-dd48-47f0-8401-b58b658a6c3c",
+      "media": [
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 25
+        },
+        {
+          "format": "CD",
+          "position": null,
+          "track-count": 11
+        }
+      ],
+      "status": "Official",
+      "title": "Rattle Conducts Britten",
+      "track-count": 36
+    }
+  ]
+}
