@@ -593,7 +593,7 @@ pub async fn lookup(album: &DiskAlbum, mut progress: impl FnMut(Step)) -> Result
     if !barcode.is_empty() {
         progress(Step::Barcode);
         ids = search_barcode(&barcode).await?;
-        tracing::info!(
+        tracing::debug!(
             "MusicBrainz: {} release(s) with barcode {barcode}",
             ids.len()
         );
@@ -603,7 +603,7 @@ pub async fn lookup(album: &DiskAlbum, mut progress: impl FnMut(Step)) -> Result
         progress(Step::Isrcs);
         let found = search_isrcs(&isrcs).await?;
         ids = rank_by_isrcs(&found, &isrcs, album.track_count());
-        tracing::info!(
+        tracing::debug!(
             "MusicBrainz: {} release(s) holding {} ISRC(s)",
             ids.len(),
             isrcs.len()
@@ -613,7 +613,7 @@ pub async fn lookup(album: &DiskAlbum, mut progress: impl FnMut(Step)) -> Result
         progress(Step::Title);
         let found = search_title(album).await?;
         ids = fitting_titles(&found, album);
-        tracing::info!(
+        tracing::debug!(
             "MusicBrainz: {} release(s) titled like \"{}\"",
             ids.len(),
             album.title
@@ -650,7 +650,7 @@ fn readable(results: Vec<Result<Release>>) -> Result<Vec<Release>> {
         match result {
             Ok(release) => releases.push(release),
             Err(e) => {
-                tracing::warn!("MusicBrainz: a candidate release could not be read: {e}");
+                tracing::debug!("MusicBrainz: a candidate release could not be read: {e}");
                 first_error.get_or_insert(e);
             }
         }
