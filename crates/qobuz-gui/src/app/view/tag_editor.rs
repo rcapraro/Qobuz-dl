@@ -2,7 +2,7 @@
 //! album fields once, each track's own fields, the cover, and Save.
 
 use super::super::tag_editor::{
-    hint, invalid, label, Edit, EditorTrack, Lookup, Resize, TagEditor,
+    hint, invalid, label, Edit, EditorTrack, Lookup, Resize, TagEditor, STRONG_MATCH,
 };
 use super::super::{App, Message};
 use super::{bold, cover, hidden_button, one_line, section, slot};
@@ -35,8 +35,6 @@ const RIGHT_MARGIN: f32 = style::SCROLLBAR_GUTTER + style::SPACE_LG;
 /// no style for it: a heading's line, at iced's default 1.3 line height, with
 /// the table's `SPACE_XS` row padding above and below.
 const HEAD_HEIGHT: f32 = style::TEXT_SM * 1.3 + 2.0 * style::SPACE_XS;
-/// From here a release is shown as a strong match.
-const STRONG_MATCH: u8 = 80;
 /// Below this a release is shown as a poor match.
 const WEAK_MATCH: u8 = 50;
 /// The track fields shown when a track row is expanded, each with Apply to all.

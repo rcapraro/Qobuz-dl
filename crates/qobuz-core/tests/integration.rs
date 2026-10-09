@@ -96,6 +96,7 @@ async fn live_musicbrainz_lookup() {
     let mut album = DiskAlbum {
         barcode: Some("074646493564".into()),
         title: "Kind of Blue".into(),
+        artist: "Miles Davis".into(),
         label: Some("Columbia".into()),
         track_count: Some(6),
         disc_count: Some(1),
@@ -134,6 +135,7 @@ async fn live_musicbrainz_lookup() {
     let hickox = DiskAlbum {
         barcode: Some("0724357398657".into()),
         title: "Richard Hickox conducts Vaughan Williams".into(),
+        artist: "Richard Hickox".into(),
         label: Some("Warner Classics".into()),
         track_count: Some(36),
         disc_count: Some(2),

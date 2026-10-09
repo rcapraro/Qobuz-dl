@@ -23,12 +23,18 @@ const MAX_CANDIDATES: usize = 5;
 /// the album, as [`title_likeness`] measures it.
 const MIN_TITLE_LIKENESS: f64 = 0.5;
 const MAX_ATTEMPTS: u32 = 3;
+const ISRC_PAGE_SIZE: usize = 100;
+/// Bounds an ISRC search at the 1 request/s pace: 500 recordings, 5 seconds.
+const MAX_ISRC_PAGES: usize = 5;
 const RELEASE_INC: &str = "recordings+isrcs+artist-credits+labels+release-groups+genres+\
                            recording-level-rels+work-rels+work-level-rels+artist-rels";
 
 const ISRC_WEIGHT: f64 = 60.0;
 const TRACK_COUNT_WEIGHT: f64 = 20.0;
 const TITLE_WEIGHT: f64 = 10.0;
+/// Heavy enough that another artist's release with the album's title and track
+/// count, and no ISRCs to tell them apart, stays below a strong match.
+const ARTIST_WEIGHT: f64 = 15.0;
 const LABEL_WEIGHT: f64 = 5.0;
 const STATUS_WEIGHT: f64 = 5.0;
 
@@ -37,6 +43,8 @@ const STATUS_WEIGHT: f64 = 5.0;
 pub struct DiskAlbum {
     pub barcode: Option<String>,
     pub title: String,
+    /// The album artist; empty when unknown.
+    pub artist: String,
     pub label: Option<String>,
     /// The album's whole track and disc counts; the edited tracks may be fewer.
     pub track_count: Option<u32>,
@@ -241,6 +249,9 @@ struct ReleaseSearch {
 struct RecordingSearch {
     #[serde(deserialize_with = "or_default")]
     recordings: Vec<Recording>,
+    /// How many recordings match in all, over every page.
+    #[serde(deserialize_with = "or_default")]
+    count: usize,
 }
 
 /// MusicBrainz writes `null` for some empty values, which `#[serde(default)]`
@@ -254,7 +265,6 @@ where
 }
 
 impl Release {
-    /// The track count over every medium.
     /// The track count on the release's audio media. A search result lists
     /// only the media holding the matched recording, so its own release-wide
     /// count is used when it has one.
@@ -269,8 +279,28 @@ impl Release {
         self.audio_media().count() as u32
     }
 
+    /// The track count on the audio media a release search lists. Unlike a
+    /// recording search, it lists every medium, so a bonus DVD's tracks, which
+    /// the release-wide count includes, can be left out.
+    fn listed_audio_tracks(&self) -> u32 {
+        if self.media.is_empty() {
+            return self.track_count.unwrap_or_default();
+        }
+        self.audio_media().map(|m| m.track_count).sum()
+    }
+
     fn audio_media(&self) -> impl Iterator<Item = &Medium> {
         self.media.iter().filter(|m| m.is_audio())
+    }
+
+    /// The audio media with their disc numbers, counting audio media only, as
+    /// [`Release::disc_count`] does.
+    fn numbered_audio_media(&self) -> impl Iterator<Item = (u32, &Medium)> {
+        (1..).zip(self.audio_media())
+    }
+
+    fn artist(&self) -> String {
+        credit(&self.artist_credit)
     }
 
     pub fn label(&self) -> Option<&str> {
@@ -395,6 +425,30 @@ fn title_likeness(a: &str, b: &str) -> f64 {
     a.intersection(&b).count() as f64 / all as f64
 }
 
+/// Words shared by unrelated artists' names, which say nothing about a match.
+const ARTIST_FILLER: [&str; 2] = ["the", "and"];
+
+/// How much two artist credits have in common, 0–1, or `None` when either is
+/// unknown: the larger share of either's words found in the other, since
+/// MusicBrainz often credits more people than Qobuz's album artist. "Richard
+/// Hickox" in "Vaughan Williams; London Symphony Orchestra, Richard Hickox" is
+/// 1.0.
+fn artist_likeness(a: &str, b: &str) -> Option<f64> {
+    let (a, b) = (normalize_name(a), normalize_name(b));
+    let words = |name: &str| -> BTreeSet<String> {
+        name.split(' ')
+            .filter(|w| !w.is_empty() && !ARTIST_FILLER.contains(w))
+            .map(str::to_string)
+            .collect()
+    };
+    let (a, b) = (words(&a), words(&b));
+    if a.is_empty() || b.is_empty() {
+        return None;
+    }
+    let shared = a.intersection(&b).count() as f64;
+    Some((shared / a.len() as f64).max(shared / b.len() as f64))
+}
+
 /// How well `release` fits `album`, 0–100. A signal either side gives no value
 /// for is left out, and the others are weighted among themselves: a release
 /// MusicBrainz lists no ISRCs for is not thereby a poor match.
@@ -413,6 +467,10 @@ pub fn confidence(release: &Release, album: &DiskAlbum) -> u8 {
     signals.push((TRACK_COUNT_WEIGHT, fit));
 
     signals.push((TITLE_WEIGHT, title_likeness(&release.title, &album.title)));
+
+    if let Some(likeness) = artist_likeness(&release.artist(), &album.artist) {
+        signals.push((ARTIST_WEIGHT, likeness));
+    }
 
     let has_labels = release.labels().next().is_some();
     if let Some(label) = album
@@ -444,24 +502,25 @@ pub fn fill(release: &Release, album: &DiskAlbum) -> Vec<Option<TagFields>> {
         .tracks
         .iter()
         .map(|track| {
-            let (medium, matched) = match_track(release, track, by_position)?;
-            Some(track_fields(release, medium, matched))
+            let (disc, medium, matched) = match_track(release, track, by_position)?;
+            Some(track_fields(release, disc, medium, matched))
         })
         .collect()
 }
 
 /// The release track whose recording has `track`'s ISRC, otherwise, when
-/// `by_position`, the one at its disc and track number.
+/// `by_position`, the one at its disc and track number, with its disc number.
+/// Only audio media are searched and numbered, so a DVD listed first takes
+/// neither a file's tracks nor its disc number.
 fn match_track<'a>(
     release: &'a Release,
     track: &DiskTrack,
     by_position: bool,
-) -> Option<(&'a Medium, &'a ReleaseTrack)> {
+) -> Option<(u32, &'a Medium, &'a ReleaseTrack)> {
     let all = || {
         release
-            .media
-            .iter()
-            .flat_map(|m| m.tracks.iter().map(move |t| (m, t)))
+            .numbered_audio_media()
+            .flat_map(|(n, m)| m.tracks.iter().map(move |t| (n, m, t)))
     };
     let isrc = track
         .isrc
@@ -469,7 +528,7 @@ fn match_track<'a>(
         .map(normalize_isrc)
         .filter(|i| !i.is_empty());
     let by_isrc = isrc.and_then(|isrc| {
-        all().find(|(_, t)| t.recording.isrcs.iter().any(|i| normalize_isrc(i) == isrc))
+        all().find(|(_, _, t)| t.recording.isrcs.iter().any(|i| normalize_isrc(i) == isrc))
     });
     by_isrc.or_else(|| {
         if !by_position {
@@ -477,11 +536,11 @@ fn match_track<'a>(
         }
         let number = track.number?;
         let disc = track.disc.unwrap_or(1);
-        all().find(|(m, t)| m.position == disc && t.position == number)
+        all().find(|(n, _, t)| *n == disc && t.position == number)
     })
 }
 
-fn track_fields(release: &Release, medium: &Medium, track: &ReleaseTrack) -> TagFields {
+fn track_fields(release: &Release, disc: u32, medium: &Medium, track: &ReleaseTrack) -> TagFields {
     let text = |s: String| (!s.is_empty()).then_some(s);
     let number = |n: u32| (n > 0).then(|| n.to_string());
     let compilation = release
@@ -491,7 +550,7 @@ fn track_fields(release: &Release, medium: &Medium, track: &ReleaseTrack) -> Tag
         .any(|t| t == "Compilation");
     let values = [
         (Field::Album, text(release.title.clone())),
-        (Field::AlbumArtist, text(credit(&release.artist_credit))),
+        (Field::AlbumArtist, text(release.artist())),
         (Field::Date, release.date()),
         (Field::Genre, release.genre().map(str::to_string)),
         (Field::Label, release.label().map(str::to_string)),
@@ -505,7 +564,7 @@ fn track_fields(release: &Release, medium: &Medium, track: &ReleaseTrack) -> Tag
         (Field::Artist, text(credit(&track.artist_credit))),
         (Field::TrackNumber, number(track.position)),
         (Field::TrackTotal, number(medium.track_count)),
-        (Field::DiscNumber, number(medium.position)),
+        (Field::DiscNumber, number(disc)),
         (
             Field::Composer,
             text(composers(&track.recording).join("; ")),
@@ -562,21 +621,44 @@ pub async fn lookup(album: &DiskAlbum, mut progress: impl FnMut(Step)) -> Result
     }
     ids.truncate(MAX_CANDIDATES);
 
-    let mut candidates = Vec::with_capacity(ids.len());
+    let mut read = Vec::with_capacity(ids.len());
     for (i, id) in ids.iter().enumerate() {
         progress(Step::Release {
             n: i + 1,
             of: ids.len(),
         });
-        let release = release(id).await?;
-        let confidence = confidence(&release, album);
-        candidates.push(Candidate {
-            release,
-            confidence,
-        });
+        read.push(release(id).await);
     }
+    let mut candidates: Vec<Candidate> = readable(read)?
+        .into_iter()
+        .map(|release| Candidate {
+            confidence: confidence(&release, album),
+            release,
+        })
+        .collect();
     candidates.sort_by_key(|c| std::cmp::Reverse(c.confidence));
     Ok(candidates)
+}
+
+/// The releases that could be read. One that could not, such as a release
+/// merged since the search was indexed, is left out; the error is returned
+/// only when none could be read, so an offline lookup still reports it.
+fn readable(results: Vec<Result<Release>>) -> Result<Vec<Release>> {
+    let mut releases = Vec::with_capacity(results.len());
+    let mut first_error = None;
+    for result in results {
+        match result {
+            Ok(release) => releases.push(release),
+            Err(e) => {
+                tracing::warn!("MusicBrainz: a candidate release could not be read: {e}");
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+    match first_error {
+        Some(e) if releases.is_empty() => Err(e),
+        _ => Ok(releases),
+    }
 }
 
 async fn search_barcode(barcode: &str) -> Result<Vec<String>> {
@@ -592,15 +674,39 @@ async fn search_isrcs(isrcs: &BTreeSet<String>) -> Result<Vec<Recording>> {
         .map(|isrc| format!("isrc:{isrc}"))
         .collect::<Vec<_>>()
         .join(" OR ");
-    let found: RecordingSearch =
-        get_json("recording", &[("query", query.as_str()), ("limit", "100")]).await?;
-    Ok(found.recordings)
+    let limit = ISRC_PAGE_SIZE.to_string();
+    let mut recordings = Vec::new();
+    let mut offset = Some(0);
+    while let Some(at) = offset {
+        let at_text = at.to_string();
+        let page: RecordingSearch = get_json(
+            "recording",
+            &[
+                ("query", query.as_str()),
+                ("limit", limit.as_str()),
+                ("offset", at_text.as_str()),
+            ],
+        )
+        .await?;
+        offset = next_isrc_page(at, page.recordings.len(), page.count);
+        recordings.extend(page.recordings);
+    }
+    Ok(recordings)
+}
+
+/// Where the next page of an ISRC search starts, or `None` once every match is
+/// read, a page comes back empty, or [`MAX_ISRC_PAGES`] pages are read.
+fn next_isrc_page(offset: usize, got: usize, count: usize) -> Option<usize> {
+    let next = offset + got;
+    (got > 0 && next < count && next < MAX_ISRC_PAGES * ISRC_PAGE_SIZE).then_some(next)
 }
 
 /// Release ids from a recording search that hold at least half of `isrcs`,
 /// ranked by how many they hold, then by how close their track count is to
 /// `track_count`. Fewer would be another album sharing some recordings, such
-/// as a box set or one of a compilation's sources.
+/// as a box set or one of a compilation's sources. The count is release-wide,
+/// bonus video included, since a recording search lists only the matched
+/// medium; it only orders releases, each scored on its audio tracks once read.
 fn rank_by_isrcs(
     recordings: &[Recording],
     isrcs: &BTreeSet<String>,
@@ -647,13 +753,16 @@ async fn search_title(album: &DiskAlbum) -> Result<Vec<Release>> {
     Ok(found.releases)
 }
 
-/// Release ids from a title search that have the album's track count, so
-/// positions line up, and share at least [`MIN_TITLE_LIKENESS`] of its title's
-/// words, most alike first.
+/// Release ids from a title search that have the album's track count on their
+/// audio media, so positions line up, share at least [`MIN_TITLE_LIKENESS`] of
+/// its title's words and, when both are known, a word of its artist, most
+/// alike first. A title alone is weak evidence: "Greatest Hits" is many
+/// artists' album.
 fn fitting_titles(releases: &[Release], album: &DiskAlbum) -> Vec<String> {
     let mut fitting: Vec<(f64, &str)> = releases
         .iter()
-        .filter(|r| r.total_tracks() == album.track_count())
+        .filter(|r| r.listed_audio_tracks() == album.track_count())
+        .filter(|r| artist_likeness(&r.artist(), &album.artist).is_none_or(|l| l > 0.0))
         .map(|r| (title_likeness(&r.title, &album.title), r.id.as_str()))
         .filter(|(likeness, _)| *likeness >= MIN_TITLE_LIKENESS)
         .collect();
@@ -805,6 +914,7 @@ mod tests {
         DiskAlbum {
             barcode: Some("074646493564".into()),
             title: "Kind Of Blue".into(),
+            artist: "Miles Davis".into(),
             label: Some("Columbia".into()),
             track_count: Some(6),
             disc_count: Some(1),
@@ -1196,6 +1306,102 @@ mod tests {
             ..album
         };
         assert!(fitting_titles(&search.releases, &other_count).is_empty());
+    }
+
+    #[test]
+    fn title_search_counts_audio_tracks_and_checks_the_artist() {
+        let found = |artist: &str, media: &str| -> Release {
+            release(&format!(
+                r#"{{"id":"{artist}","title":"Greatest Hits","track-count":15,
+                "artist-credit":[{{"name":"{artist}"}}],"media":[{media}]}}"#
+            ))
+        };
+        let cd_and_dvd = r#"{"format":"CD","track-count":10},
+            {"format":"DVD-Video","track-count":5}"#;
+        let releases = [found("Queen", cd_and_dvd), found("ABBA", cd_and_dvd)];
+        let album = DiskAlbum {
+            title: "Greatest Hits".into(),
+            artist: "Queen".into(),
+            track_count: Some(10),
+            ..DiskAlbum::default()
+        };
+        assert_eq!(fitting_titles(&releases, &album), ["Queen"]);
+
+        let unknown_artist = DiskAlbum {
+            artist: String::new(),
+            ..album
+        };
+        assert_eq!(fitting_titles(&releases, &unknown_artist).len(), 2);
+    }
+
+    #[test]
+    fn artist_likeness_allows_a_fuller_credit() {
+        let credit = "Ralph Vaughan Williams; London Symphony Orchestra, Richard Hickox";
+        assert_eq!(artist_likeness(credit, "Richard Hickox"), Some(1.0));
+        assert_eq!(artist_likeness("ABBA", "Queen"), Some(0.0));
+        assert_eq!(
+            artist_likeness("The Rolling Stones", "The Beatles"),
+            Some(0.0),
+            "a shared \"the\" is no match"
+        );
+        assert_eq!(artist_likeness("", "Queen"), None);
+    }
+
+    #[test]
+    fn another_artists_release_is_not_a_strong_match() {
+        let mut other = release(KIND_OF_BLUE);
+        for medium in &mut other.media {
+            for t in &mut medium.tracks {
+                t.recording.isrcs.clear();
+            }
+        }
+        other.artist_credit = vec![Credit {
+            name: "ABBA".into(),
+            joinphrase: String::new(),
+        }];
+        let score = confidence(&other, &kind_of_blue_on_disk());
+        assert!(score < 80, "{score}");
+    }
+
+    #[test]
+    fn a_video_medium_listed_first_takes_no_file() {
+        let json = r#"{"media":[
+            {"position":1,"format":"DVD-Video","track-count":3,
+             "tracks":[{"position":1,"title":"Video 1"},{"position":2,"title":"Video 2"},
+                       {"position":3,"title":"Video 3"}]},
+            {"position":2,"format":"CD","track-count":3,
+             "tracks":[{"position":1,"title":"One"},{"position":2,"title":"Two"},
+                       {"position":3,"title":"Three","recording":{"isrcs":["AA1"]}}]}]}"#;
+        let fields = filled(json, &[track(None, 1, 2), track(Some("AA1"), 1, 3)]);
+        let get = |i: usize, f| fields[i].as_ref().unwrap().get(f).map(str::to_string);
+        assert_eq!(get(0, Field::Title).as_deref(), Some("Two"));
+        assert_eq!(get(0, Field::DiscNumber).as_deref(), Some("1"));
+        assert_eq!(
+            get(1, Field::DiscNumber).as_deref(),
+            Some("1"),
+            "matched by ISRC"
+        );
+        assert_eq!(get(1, Field::DiscTotal).as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn isrc_search_reads_every_page_up_to_a_bound() {
+        assert_eq!(next_isrc_page(0, 100, 120), Some(100));
+        assert_eq!(next_isrc_page(100, 20, 120), None, "all read");
+        assert_eq!(next_isrc_page(0, 0, 120), None, "an empty page ends it");
+        assert_eq!(next_isrc_page(400, 100, 900), None, "five pages at most");
+    }
+
+    #[test]
+    fn an_unreadable_release_is_left_out() {
+        let gone = || Error::Http {
+            status: 404,
+            message: "gone".into(),
+        };
+        let kept = readable(vec![Ok(release(KIND_OF_BLUE)), Err(gone())]).unwrap();
+        assert_eq!(kept.len(), 1);
+        assert!(readable(vec![Err(gone()), Err(gone())]).is_err());
+        assert!(readable(Vec::new()).unwrap().is_empty());
     }
 
     #[test]

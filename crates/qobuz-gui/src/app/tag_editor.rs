@@ -16,6 +16,10 @@ use qobuz_core::CoverSize;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
+/// From here a release is shown as a strong match, and a lone one is filled
+/// without asking.
+pub(super) const STRONG_MATCH: u8 = 80;
+
 /// An album field's value across the album's files before any edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Shared {
@@ -259,6 +263,14 @@ pub(super) fn release_name(release: &Release) -> String {
     }
 }
 
+/// Whether a fill leaves the album fields and cover alone: a release matching
+/// fewer than half the files is likely another edition, whose album-wide
+/// values would be written to every file.
+fn keeps_album(values: &[Option<TagFields>]) -> bool {
+    let unmatched = values.iter().filter(|v| v.is_none()).count();
+    unmatched * 2 > values.len()
+}
+
 /// A save in progress, one file at a time, so a large album never needs more
 /// than one file's worth of extra disk space and the editor can show progress.
 #[derive(Debug, Clone)]
@@ -493,12 +505,15 @@ impl TagEditor {
     }
 
     /// The album as the lookup knows it: the files' ISRCs and numbering, and
-    /// the barcode, title, label and track count of its Qobuz release.
+    /// the barcode, title, artist, label and track count of its Qobuz release.
     fn disk_album(&self) -> DiskAlbum {
         let qobuz = self.tracks.first().map(|t| &t.job.album);
         DiskAlbum {
             barcode: qobuz.and_then(|a| a.upc.clone()),
             title: qobuz.map(|a| a.title.clone()).unwrap_or_default(),
+            artist: qobuz
+                .map(|a| a.artist_name().to_string())
+                .unwrap_or_default(),
             label: qobuz.and_then(|a| a.label.as_ref()?.name.clone()),
             track_count: qobuz.and_then(|a| a.tracks_count),
             disc_count: qobuz.and_then(|a| a.media_count),
@@ -529,7 +544,8 @@ impl TagEditor {
     }
 
     /// The lookup found these releases, best first; `None` when no lookup is
-    /// searching, so a late result is dropped.
+    /// searching, so a late result is dropped. A lone release is filled only
+    /// when it is a strong match; a weaker one is listed for the user to judge.
     pub(super) fn found(&mut self, mut candidates: Vec<Candidate>) -> Option<Found> {
         if !self.searching() {
             return None;
@@ -539,7 +555,9 @@ impl TagEditor {
                 self.lookup = None;
                 Found::Nothing
             }
-            1 => Found::Chosen(self.take(candidates.remove(0))),
+            1 if candidates[0].confidence >= STRONG_MATCH => {
+                Found::Chosen(self.take(candidates.remove(0)))
+            }
             _ => {
                 self.lookup = Some(Lookup::Choosing(candidates));
                 Found::Choosing
@@ -559,14 +577,18 @@ impl TagEditor {
         Some(self.take(candidate))
     }
 
+    /// Fill from `candidate`, or first fetch its cover when Include cover is on
+    /// and the cover would be used: with fewer than half the files matched it
+    /// would be left out, so the matched tracks are filled at once.
     fn take(&mut self, candidate: Candidate) -> Chosen {
-        if self.include_cover {
+        let values = musicbrainz::fill(&candidate.release, &self.disk_album());
+        if self.include_cover && !keeps_album(&values) {
             let id = candidate.release.id.clone();
             self.lookup = Some(Lookup::Cover(Box::new(candidate)));
             return Chosen::NeedsCover(id);
         }
         self.lookup = None;
-        Chosen::Filled(self.fill_from(&candidate, false))
+        Chosen::Filled(self.fill_with(&candidate, values, false))
     }
 
     /// The chosen release's cover arrived, `None` when it has none: fill the
@@ -593,10 +615,17 @@ impl TagEditor {
 
     fn fill_from(&mut self, candidate: &Candidate, no_cover: bool) -> Filled {
         let values = musicbrainz::fill(&candidate.release, &self.disk_album());
+        self.fill_with(candidate, values, no_cover)
+    }
+
+    fn fill_with(
+        &mut self,
+        candidate: &Candidate,
+        values: Vec<Option<TagFields>>,
+        no_cover: bool,
+    ) -> Filled {
         let unmatched = values.iter().filter(|v| v.is_none()).count();
-        // A release matching fewer than half the files is likely another
-        // edition: its album-wide values would be written to every file.
-        let album_kept = unmatched * 2 > values.len();
+        let album_kept = keeps_album(&values);
         self.fill(values, !album_kept);
         Filled {
             release: release_name(&candidate.release),
@@ -1258,7 +1287,7 @@ mod tests {
                 &[(Field::Isrc, "XX0000000000"), (Field::TrackNumber, "9")],
             ]);
             e.start_lookup();
-            let found = e.found(vec![candidate("r1", "So What", "USSM15900113", 50)]);
+            let found = e.found(vec![candidate("r1", "So What", "USSM15900113", 90)]);
             let Some(Found::Chosen(Chosen::Filled(filled))) = found else {
                 panic!("{found:?}");
             };
@@ -1328,10 +1357,14 @@ mod tests {
             let mut e = editor(&[&a, &b, &c]);
             e.include_cover = true;
             e.start_lookup();
-            e.found(vec![candidate("r1", "So What", "USSM15900113", 40)]);
-            let filled = e.cover_fetched(Some(vec![1]), CoverSize::Px600).unwrap();
+            let found = e.found(vec![candidate("r1", "So What", "USSM15900113", 40)]);
+            assert_eq!(found, Some(Found::Choosing), "a weak match is listed");
+            let Some(Chosen::Filled(filled)) = e.choose(0) else {
+                panic!("filled at once: the cover would be left out");
+            };
 
             assert!(filled.album_kept);
+            assert!(e.lookup.is_none());
             assert_eq!(e.album_field(Field::Album).text, "Old");
             assert_eq!(e.cover, CoverAction::Keep);
             assert_eq!(
