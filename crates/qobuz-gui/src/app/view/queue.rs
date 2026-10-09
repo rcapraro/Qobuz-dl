@@ -8,7 +8,7 @@ use crate::style::{
     self, compact_button, field_input, fill_button, secondary_button, styled_button,
 };
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
+use iced::widget::{column, container, progress_bar, row, scrollable, text, Space};
 use iced::{Color, Element, Font, Length};
 use iced_aw::widget::badge::Badge;
 use qobuz_core::engine::Job;
@@ -95,7 +95,7 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
             } else {
                 "Cancel"
             })
-            .style(button::secondary)
+            .style(style::secondary)
             .on_press_maybe((!cancelling).then_some(Message::CancelDownloads)),
         );
     }
@@ -122,7 +122,7 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
     column![
         header,
         progress_bar(0.0..=1.0, overall.clamp(0.0, 1.0))
-            .height(Length::Fixed(style::PROGRESS_HEIGHT)),
+            .girth(Length::Fixed(style::PROGRESS_HEIGHT)),
     ]
     .spacing(style::SPACE_MD)
     .into()
@@ -160,7 +160,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
                 .size(style::TEXT_SM)
                 .wrapping(Wrapping::None)
                 .style(|theme| text::Style {
-                    color: Some(style::accents(theme).error()),
+                    color: Some(style::accents(theme).error_text),
                 }),
         );
     }
@@ -171,7 +171,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         hidden_badge(longer(quality.unwrap_or_default(), QUALITY_SAMPLE), false),
         match quality {
             Some(quality) => quality_badge(quality),
-            None => Space::new(Length::Shrink, Length::Shrink).into(),
+            None => Space::new().into(),
         },
     );
     let title_line = row![
@@ -215,7 +215,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
     let mut body = column![
         head,
         progress_bar(0.0..=1.0, summary.fraction.clamp(0.0, 1.0))
-            .height(Length::Fixed(style::PROGRESS_HEIGHT)),
+            .girth(Length::Fixed(style::PROGRESS_HEIGHT)),
     ]
     .spacing(style::SPACE_SM);
     if !collapsed {
@@ -225,7 +225,7 @@ fn group_view<'a>(app: &'a App, group: Group<'a>) -> Element<'a, Message> {
         }
         // Indented under the header so rows read as belonging to the album.
         body = body.push(container(rows).padding(iced::Padding {
-            left: style::SPACE_XL as f32,
+            left: style::SPACE_XL,
             ..iced::Padding::ZERO
         }));
     }
@@ -425,13 +425,18 @@ fn row_label(job: &Job) -> (String, Option<&str>) {
     (title, guest_performer(job))
 }
 
-/// Background/foreground accent selector for a queue item's status badge.
-fn badge_palette(status: &ItemStatus) -> fn(&style::Accents) -> (iced::Color, iced::Color) {
+/// A queue item's status badge: neutral while queued, else its role's accent.
+fn badge_style(status: &ItemStatus) -> fn(&iced::Theme) -> iced_aw::style::badge::Style {
     match status {
-        ItemStatus::Queued => |a| (a.surface2, a.text),
-        ItemStatus::Downloading | ItemStatus::Tagging => |a| (a.progress(), a.on_accent),
-        ItemStatus::Done(_) => |a| (a.success(), a.on_accent),
-        ItemStatus::Error(_) => |a| (a.error(), a.on_accent),
+        ItemStatus::Queued => |theme| {
+            let a = style::accents(theme);
+            style::badge(a.band, a.text)
+        },
+        ItemStatus::Downloading | ItemStatus::Tagging => {
+            |theme| style::role_badge(theme, style::accents(theme).progress())
+        }
+        ItemStatus::Done(_) => |theme| style::role_badge(theme, style::accents(theme).success()),
+        ItemStatus::Error(_) => |theme| style::role_badge(theme, style::accents(theme).error()),
     }
 }
 
@@ -473,7 +478,7 @@ fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, 
         ItemStatus::Error(_) => "Failed".into(),
     };
 
-    let pick = badge_palette(&it.status);
+    let pick = badge_style(&it.status);
     // Monospace so the padded percentage keeps a constant width (the default
     // font's digits vary in width and shift the badge).
     let sample = hidden_badge(longer(&status_text, STATUS_SAMPLE), true);
@@ -483,11 +488,7 @@ fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, 
             .font(Font::MONOSPACE)
             .wrapping(Wrapping::None),
     )
-    .style(move |theme, _status| {
-        let a = style::accents(theme);
-        let (bg, fg) = pick(&a);
-        style::badge(bg, fg)
-    });
+    .style(move |theme, _status| pick(theme));
 
     let (title, guest) = row_label(&it.job);
     let mut first_line = row![text(title)]
@@ -502,7 +503,7 @@ fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, 
                     .size(style::TEXT_SM)
                     .wrapping(Wrapping::None)
                     .style(|theme| text::Style {
-                        color: Some(style::accents(theme).error()),
+                        color: Some(style::accents(theme).error_text),
                     }),
             )
             .width(Length::Fill)
@@ -524,10 +525,10 @@ fn queue_row<'a>(it: &'a QueueItem, group_quality: Option<&str>) -> Element<'a, 
     let bar: Element<'a, Message> =
         if matches!(it.status, ItemStatus::Downloading | ItemStatus::Tagging) {
             progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
-                .height(bar_slot)
+                .girth(bar_slot)
                 .into()
         } else {
-            Space::with_height(bar_slot).into()
+            Space::new().height(bar_slot).into()
         };
     column![top, bar].spacing(style::SPACE_XS).into()
 }

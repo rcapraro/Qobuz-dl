@@ -3,6 +3,7 @@
 use crate::style::{self, compact_button};
 use album::{AlbumDetail, DetailState};
 use cover_art::CoverArt;
+use iced::futures::channel::mpsc::Sender;
 use iced::futures::{future, SinkExt};
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Element, Length, Task, Theme};
@@ -49,18 +50,19 @@ pub fn run() -> iced::Result {
         icon: window_icon(),
         ..Default::default()
     };
-    iced::application("Qobuz-dl", App::update, App::view)
+    iced::application(App::new, App::update, App::view)
+        .title("Qobuz-dl")
         .theme(App::theme)
         .subscription(App::subscription)
         // iced_aw's NumberInput draws its spinner carets from this icon font.
-        .font(iced_aw::iced_fonts::REQUIRED_FONT_BYTES)
+        .font(iced_aw::ICED_AW_FONT_BYTES)
         // Bundle Inter and make it the default so glyphs (dots, arrows, ×, ☀)
         // render identically on every OS instead of relying on font fallback.
         .font(include_bytes!("../assets/fonts/Inter-Regular.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-Bold.ttf").as_slice())
         .default_font(iced::Font::with_name("Inter"))
         .window(window)
-        .run_with(App::new)
+        .run()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -862,7 +864,7 @@ impl App {
                 self.album = None;
                 // The results subtree is rebuilt when the detail closes, which
                 // resets its scroll; put it back where the user left it.
-                scrollable::scroll_to(view::search::results_id(), self.results_offset)
+                iced::widget::operation::scroll_to(view::search::results_id(), self.results_offset)
             }
             Message::ToggleTrack(track_id) => {
                 if let Some(album) = &mut self.album {
@@ -1477,7 +1479,7 @@ impl App {
             // unclaimed, so the press can't be told from one in no field.
             Shortcut::FocusSearch if self.screen != Screen::Settings => {
                 self.screen = Screen::Search;
-                iced::widget::text_input::focus(view::search::search_input_id())
+                iced::widget::operation::focus(view::search::search_input_id())
             }
             Shortcut::FocusSearch => Task::none(),
             Shortcut::NextTab => self.update(Message::Navigate(shortcut::next_tab(self.screen))),
@@ -1750,7 +1752,7 @@ impl App {
         let cancel = CancellationToken::new();
         self.cancel = Some(cancel.clone());
 
-        let stream = iced::stream::channel(256, move |mut output| async move {
+        let stream = iced::stream::channel(256, move |mut output: Sender<Message>| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<JobEvent>(256);
             // The engine clones the client internally; a retained clone shares
             // the `working_secret` cache, so we can read which secret signed
@@ -1841,7 +1843,11 @@ impl App {
                 "○  signed out"
             })
             .size(style::TEXT_SM)
-            .color(if signed_in { a.success() } else { a.error() }),
+            .color(if signed_in {
+                a.success_text
+            } else {
+                a.error_text
+            }),
         ]
         .spacing(style::SPACE_MD)
         .align_y(iced::Alignment::Center);
@@ -1864,9 +1870,9 @@ impl App {
             )
             .set_active_tab(&self.screen)
             .tab_bar_style(style::tab_bar)
-            .tab_label_padding([style::SPACE_SM as f32, style::SPACE_LG as f32])
-            .tab_label_spacing(style::SPACE_XS as f32)
-            .text_size(style::TEXT_BODY as f32)
+            .tab_label_padding([style::SPACE_SM, style::SPACE_LG])
+            .tab_label_spacing(style::SPACE_XS)
+            .text_size(style::TEXT_BODY)
             .height(Length::Fill);
 
         let content = column![header, view::status_bar(self.status.as_ref()), tabs]
@@ -1882,7 +1888,7 @@ impl App {
 fn tab_pane<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     container(content)
         .padding(iced::Padding {
-            top: style::SPACE_LG as f32,
+            top: style::SPACE_LG,
             ..iced::Padding::ZERO
         })
         .width(Length::Fill)

@@ -9,9 +9,10 @@ pub(super) mod tag_editor;
 use super::status::{Status, StatusKind};
 use super::Message;
 use crate::style::{self, compact_button};
-use iced::widget::{container, image, row, stack, text};
+use iced::widget::{container, image, row, stack, text, tooltip, Text};
 use iced::{Alignment, Color, Element, Font, Length};
 use iced_aw::widget::badge::Badge;
+use std::time::Duration;
 
 /// Bold variant of the default UI font (Inter). Basing this on `Font::DEFAULT`
 /// would fall back to a system sans-serif, so it must name the Inter family to
@@ -41,9 +42,9 @@ pub(super) fn section(title: &str) -> Element<'_, Message> {
 fn status_look(kind: StatusKind) -> (&'static str, fn(&style::Accents) -> Color) {
     match kind {
         StatusKind::Info => ("•", |a| a.subtext),
-        StatusKind::Progress => ("…", style::Accents::progress),
-        StatusKind::Success => ("✓", style::Accents::success),
-        StatusKind::Error => ("✗", style::Accents::error),
+        StatusKind::Progress => ("…", |a| a.progress_text),
+        StatusKind::Success => ("✓", |a| a.success_text),
+        StatusKind::Error => ("✗", |a| a.error_text),
     }
 }
 
@@ -75,7 +76,7 @@ pub(super) fn status_bar(status: Option<&Status>) -> Element<'_, Message> {
             let outline = (kind == StatusKind::Error).then(|| style::accents(theme).error());
             style::status_surface(theme, outline)
         })
-        .padding([0, style::SPACE_MD])
+        .padding([0.0, style::SPACE_MD])
         .center_y(Length::Fixed(style::CONTROL_HEIGHT))
         .width(Length::Fill)
         .into()
@@ -96,6 +97,26 @@ pub(super) fn cover<'a>(thumb: Option<&image::Handle>, size: f32) -> Element<'a,
     }
 }
 
+/// How long the pointer rests on a cut line before its whole text shows.
+const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
+
+/// `line` kept on one line and cut at the width it is given, so a row stays
+/// one line tall however long its text; `full`, the whole text, shows on hover.
+pub(super) fn one_line<'a>(
+    line: Text<'a>,
+    full: impl text::IntoFragment<'a>,
+) -> Element<'a, Message> {
+    let line = container(line.wrapping(text::Wrapping::None))
+        .width(Length::Fill)
+        .clip(true);
+    let full = container(text(full))
+        .padding(style::SPACE_SM)
+        .style(style::surface);
+    tooltip(line, full, tooltip::Position::Bottom)
+        .delay(TOOLTIP_DELAY)
+        .into()
+}
+
 /// A small audio-quality chip ("Hi-Res", a delivered format), styled like the
 /// queue's status badges but in the quality accent.
 pub(super) fn quality_badge<'a>(label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
@@ -106,7 +127,7 @@ pub(super) fn quality_badge<'a>(label: impl text::IntoFragment<'a>) -> Element<'
     )
     .style(|theme, _status| {
         let a = style::accents(theme);
-        style::badge(a.quality(), a.on_accent)
+        style::role_badge(theme, a.quality())
     })
     .into()
 }

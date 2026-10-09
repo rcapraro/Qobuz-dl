@@ -12,8 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 qobuz-core = { path = "../qobuz-core" }
-iced = { version = "0.13", features = ["tokio", "advanced", "image"] }
-iced_aw = { version = "0.12", default-features = false, features = [
+iced = { version = "0.14", features = ["tokio", "advanced", "image"] }
+iced_aw = { version = "0.14", default-features = false, features = [
     "tabs",
     "number_input",
     "card",

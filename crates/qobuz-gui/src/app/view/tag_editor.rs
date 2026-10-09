@@ -6,8 +6,7 @@ use super::super::{App, Message};
 use super::{bold, cover, hidden_button, section, slot};
 use crate::style::{self, compact_button, field_input, fill_button, labeled_row, styled_button};
 use iced::widget::{
-    button, checkbox, column, combo_box, container, pick_list, row, scrollable, text, text_input,
-    TextInput,
+    checkbox, column, combo_box, container, pick_list, row, scrollable, text, text_input, TextInput,
 };
 use iced::{Element, Length};
 use qobuz_core::tag_edit::{CoverAction, Field, FieldKind};
@@ -26,7 +25,7 @@ const TOGGLE_WIDTH: f32 = 80.0;
 const APPLY_WIDTH: f32 = 104.0;
 /// Space the form keeps clear of the scrollbar, beyond its gutter, so the
 /// row-end buttons don't sit against it.
-const RIGHT_MARGIN: f32 = style::SCROLLBAR_GUTTER + style::SPACE_LG as f32;
+const RIGHT_MARGIN: f32 = style::SCROLLBAR_GUTTER + style::SPACE_LG;
 /// The track fields shown when a track row is expanded, each with Apply to all.
 const MORE_FIELDS: [Field; 6] = [
     Field::Artist,
@@ -80,12 +79,12 @@ fn header<'a>(app: &'a App, editor: &'a TagEditor) -> Element<'a, Message> {
     let close_slot = slot(
         hidden_button(DISCARD),
         fill_button(close)
-            .style(button::secondary)
+            .style(style::secondary)
             .on_press_maybe((!saving).then_some(Message::CloseTagEditor)),
     );
     let actions = row![
         styled_button("Reset to Qobuz")
-            .style(button::secondary)
+            .style(style::secondary)
             .width(Length::Shrink)
             .on_press_maybe((!saving).then_some(Message::Editor(Edit::ResetToQobuz))),
         close_slot,
@@ -186,7 +185,7 @@ fn genre_input(editor: &TagEditor) -> Element<'_, Message> {
     )
     .on_input(set)
     .padding(style::INPUT_PADDING)
-    .size(style::TEXT_BODY.into())
+    .size(style::TEXT_BODY)
     .width(Length::Fill);
     let mut control = row![input]
         .spacing(style::SPACE_SM)
@@ -317,7 +316,7 @@ fn track_list(editor: &TagEditor) -> Element<'_, Message> {
         section("Tracks"),
         container(head)
             .style(style::table_head)
-            .padding([style::SPACE_XS, 0])
+            .padding([style::SPACE_XS, 0.0])
     ]
     .spacing(style::SPACE_SM);
     for track in &editor.tracks {
@@ -332,9 +331,9 @@ fn track_list(editor: &TagEditor) -> Element<'_, Message> {
 /// A column heading `width` wide, its text inset like an input's so it sits
 /// right above the values.
 fn column_label(label: &str, width: Length) -> Element<'_, Message> {
-    container(text(label).size(style::TEXT_SM).style(style::muted_text))
+    container(text(label).size(style::TEXT_SM))
         .width(width)
-        .padding([0, style::INPUT_PADDING + 1])
+        .padding([0.0, style::INPUT_PADDING + 1.0])
         .into()
 }
 
@@ -372,7 +371,7 @@ fn more_fields(track: &EditorTrack) -> Element<'_, Message> {
     let mut fields = column![].spacing(style::SPACE_SM);
     for field in MORE_FIELDS {
         let control: Element<'_, Message> = if field.kind() == FieldKind::Flag {
-            checkbox("", !track.text(field).is_empty())
+            checkbox(!track.text(field).is_empty())
                 .on_toggle(move |on| Message::Editor(Edit::TrackFlag(id, field, on)))
                 .into()
         } else {
@@ -394,7 +393,7 @@ fn more_fields(track: &EditorTrack) -> Element<'_, Message> {
             .align_y(iced::Alignment::Center),
         ));
     }
-    let title_column = 2.0 * (NUMBER_WIDTH + style::SPACE_SM as f32);
+    let title_column = 2.0 * (NUMBER_WIDTH + style::SPACE_SM);
     container(
         container(fields)
             .style(style::surface)
@@ -403,7 +402,7 @@ fn more_fields(track: &EditorTrack) -> Element<'_, Message> {
     )
     .padding(iced::Padding {
         left: title_column,
-        bottom: style::SPACE_XS as f32,
+        bottom: style::SPACE_XS,
         ..iced::Padding::ZERO
     })
     .into()
@@ -417,7 +416,7 @@ fn unreadable(editor: &TagEditor) -> Element<'_, Message> {
             text(format!("{} — {}", track.title, track.reason))
                 .size(style::TEXT_SM)
                 .style(|theme| text::Style {
-                    color: Some(style::accents(theme).error()),
+                    color: Some(style::accents(theme).error_text),
                 }),
         );
     }

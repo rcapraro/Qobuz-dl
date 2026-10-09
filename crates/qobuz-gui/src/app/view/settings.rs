@@ -7,7 +7,7 @@ use super::{card_el, gutter_padding};
 use crate::style::{
     self, action_button, field_input, labeled_row, secondary_button, styled_button,
 };
-use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, text};
+use iced::widget::{checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Element, Length};
 use iced_aw::widget::number_input::NumberInput;
 use qobuz_core::config::MAX_CONCURRENCY;
@@ -76,7 +76,7 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                     .width(Length::Fill),
                 styled_button("Sign in").on_press_maybe(can_sign_in.then_some(Message::LoginToken)),
                 styled_button("Sign out")
-                    .style(button::secondary)
+                    .style(style::secondary)
                     .on_press_maybe(app.signed_in().then_some(Message::SignOut)),
             ]
             .spacing(style::SPACE_SM)
@@ -118,7 +118,7 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
                 Message::ConcurrencyChanged,
             )
             .step(1)
-            .size(style::TEXT_BODY)
+            .set_size(style::TEXT_BODY)
             .padding(style::INPUT_PADDING)
             .width(Length::Fixed(CONCURRENCY_WIDTH)),
             text("Cover art:").size(style::TEXT_BODY),
@@ -129,7 +129,8 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
             )
             .padding(style::INPUT_PADDING)
             .text_size(style::TEXT_BODY),
-            checkbox("Notify when done", app.config.notify_on_finish)
+            checkbox(app.config.notify_on_finish)
+                .label("Notify when done")
                 .text_size(style::TEXT_BODY)
                 .on_toggle(Message::NotifyToggled),
         ]
@@ -159,13 +160,13 @@ pub(in crate::app) fn settings_view(app: &App) -> Element<'_, Message> {
             field_input("track format", &app.config.track_format)
                 .on_input(Message::TrackFormatChanged),
         ),
-        container(text(preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
+        container(text(preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0.0]),
         labeled_row(
             "Rename:",
             field_input("rename format", &app.config.rename_format)
                 .on_input(Message::RenameFormatChanged),
         ),
-        container(text(rename_preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0]),
+        container(text(rename_preview).size(style::TEXT_SM)).padding([style::SPACE_XS, 0.0]),
     ]
     .spacing(style::SPACE_SM);
     if app.show_template_help {
@@ -216,7 +217,7 @@ fn save_row<'a>(dirty: bool) -> Element<'a, Message> {
             text("Unsaved changes")
                 .size(style::TEXT_SM)
                 .style(|theme| text::Style {
-                    color: Some(style::accents(theme).progress()),
+                    color: Some(style::accents(theme).progress_text),
                 }),
         );
     }

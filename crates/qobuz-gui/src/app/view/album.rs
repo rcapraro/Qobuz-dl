@@ -5,7 +5,7 @@ use super::super::album::{AlbumDetail, DetailState};
 use super::super::Message;
 use super::{bold, cover, gutter_padding, quality_badge};
 use crate::style::{self, compact_button, secondary_button, styled_button};
-use iced::widget::{checkbox, column, container, horizontal_space, image, row, scrollable, text};
+use iced::widget::{checkbox, column, container, image, row, scrollable, space, text};
 use iced::{Element, Length};
 use qobuz_core::engine::Job;
 use qobuz_core::models::Album;
@@ -34,7 +34,7 @@ pub(in crate::app) fn album_view<'a>(
         DetailState::Failed(e) => page.push(notice(
             column![
                 text(format!("Could not load this album: {e}")).style(|theme| text::Style {
-                    color: Some(style::accents(theme).error()),
+                    color: Some(style::accents(theme).error_text),
                 }),
                 secondary_button("Retry", Message::RetryAlbum),
             ]
@@ -123,7 +123,7 @@ fn selection_bar(detail: &AlbumDetail, total: usize) -> Element<'_, Message> {
         text(format!("{n} of {total} selected")).style(style::muted_text),
         compact_button("Select all").on_press(Message::SelectAllTracks),
         compact_button("Select none").on_press(Message::SelectNoTracks),
-        horizontal_space(),
+        space::horizontal(),
         styled_button(label)
             .width(Length::Shrink)
             .on_press_maybe((n > 0).then_some(Message::AddSelected)),
@@ -188,7 +188,7 @@ fn track_table<'a>(jobs: &'a [Job], detail: &AlbumDetail) -> Element<'a, Message
 fn column_header<'a>() -> Element<'a, Message> {
     let label = |s: &'a str| text(s).size(style::TEXT_SM).font(bold());
     row![
-        horizontal_space().width(Length::Fixed(CHECKBOX_SIZE)),
+        space::horizontal().width(Length::Fixed(CHECKBOX_SIZE)),
         label("#")
             .width(Length::Fixed(NUMBER_WIDTH))
             .align_x(iced::Alignment::End),
@@ -196,7 +196,7 @@ fn column_header<'a>() -> Element<'a, Message> {
         label("Time")
             .width(Length::Fixed(DURATION_WIDTH))
             .align_x(iced::Alignment::End),
-        horizontal_space().width(Length::Fixed(BADGE_WIDTH)),
+        space::horizontal().width(Length::Fixed(BADGE_WIDTH)),
     ]
     .spacing(style::SPACE_SM)
     .into()
@@ -226,10 +226,10 @@ fn track_row(job: &Job, checked: bool) -> Element<'_, Message> {
     let badge: Element<'_, Message> = if track.is_hires() {
         quality_badge("Hi-Res")
     } else {
-        horizontal_space().into()
+        space::horizontal().into()
     };
     row![
-        checkbox("", checked)
+        checkbox(checked)
             .size(CHECKBOX_SIZE)
             .spacing(0)
             .on_toggle(move |_| Message::ToggleTrack(id)),

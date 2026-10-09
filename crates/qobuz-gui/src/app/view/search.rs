@@ -3,11 +3,9 @@
 use super::super::paging::{Kind, Section};
 use super::super::{AlbumResult, App, Message, Screen, TrackResult};
 use super::album::album_view;
-use super::{bold, card_el, cover, gutter_padding, quality_badge};
+use super::{bold, card_el, cover, gutter_padding, one_line, quality_badge};
 use crate::style::{self, action_button, compact_button, field_input, styled_button};
-use iced::widget::{
-    button, column, container, image, row, scrollable, text, text_input, Column, Space,
-};
+use iced::widget::{column, container, image, row, scrollable, text, Column, Space};
 use iced::{Element, Length};
 use qobuz_core::catalog::Reference;
 use qobuz_core::config::Config;
@@ -55,13 +53,13 @@ pub(in crate::app) fn search_view(app: &App) -> Element<'_, Message> {
 
 /// The results list's scrollable, addressed to restore its offset when an
 /// album's detail closes.
-pub(in crate::app) fn results_id() -> scrollable::Id {
-    scrollable::Id::new("search-results")
+pub(in crate::app) fn results_id() -> iced::widget::Id {
+    iced::widget::Id::new("search-results")
 }
 
 /// The search field, addressed so the `/` shortcut can focus it.
-pub(in crate::app) fn search_input_id() -> text_input::Id {
-    text_input::Id::new("search-input")
+pub(in crate::app) fn search_input_id() -> iced::widget::Id {
+    iced::widget::Id::new("search-input")
 }
 
 /// Shown in place of results until searching can work, so the first thing a
@@ -166,7 +164,7 @@ fn results_card<'a, T>(
             } else {
                 "Show more"
             })
-            .style(button::secondary)
+            .style(style::secondary)
             .on_press_maybe((!section.loading).then_some(Message::ShowMore(kind))),
         );
     }
@@ -197,11 +195,13 @@ fn add_row<'a>(
     open: Option<Message>,
     added: bool,
 ) -> Element<'a, Message> {
+    // On one line, so every row is the cover's height and rows sit evenly apart.
     let label = column![
-        text(title).font(bold()),
+        one_line(text(title).font(bold()), title),
         text(artist).size(style::TEXT_SM).style(style::muted_text),
     ]
-    .spacing(2);
+    .spacing(2)
+    .width(Length::Fill);
     let lead = row![cover, label]
         .spacing(style::SPACE_SM)
         .align_y(iced::Alignment::Center);
@@ -216,7 +216,7 @@ fn add_row<'a>(
     let badge: Element<'a, Message> = if hires {
         quality_badge("Hi-Res")
     } else {
-        Space::with_width(Length::Shrink).into()
+        Space::new().into()
     };
     let slot = container(badge)
         .width(Length::Fixed(HIRES_SLOT_WIDTH))
