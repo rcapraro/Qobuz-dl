@@ -128,7 +128,7 @@ fn queue_header(app: &App, editing: bool) -> Element<'_, Message> {
     .into()
 }
 
-const GROUP_COVER_SIZE: f32 = 40.0;
+const GROUP_COVER_SIZE: f32 = 52.0;
 // The widest usual content of each fixed slot. A longer value, such as a tier
 // name the API fell back to, takes its own length instead.
 const QUALITY_SAMPLE: &str = "FLAC 24/176.4";

@@ -16,7 +16,7 @@ use iced_aw::widget::badge::Badge;
 use qobuz_core::musicbrainz::{Candidate, Step};
 use qobuz_core::tag_edit::{CoverAction, Field, FieldKind};
 
-const COVER_SIZE: f32 = 96.0;
+const COVER_SIZE: f32 = 112.0;
 const COVER_THUMB_SIZE: f32 = 64.0;
 /// Fits a three-digit track, disc or total.
 const NUMBER_WIDTH: f32 = 64.0;
