@@ -3282,7 +3282,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "qobuz-core"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "base64",
  "directories",
@@ -3304,7 +3304,7 @@ dependencies = [
 
 [[package]]
 name = "qobuz-gui"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "iced",
  "iced_aw",
