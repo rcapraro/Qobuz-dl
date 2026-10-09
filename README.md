@@ -22,6 +22,8 @@ quality, cover art, file organization, and tags.
   release date, label, copyright, ISRC and the explicit flag (see [Tags](#tags)).
 - **Edit the tags** of a downloaded album from the queue: album fields once, each
   track's own fields, and the cover, saved without touching other tags.
+- **Fill tags from MusicBrainz**: find the album's release by barcode, ISRCs or
+  title, pick it from a ranked list, and fill the fields and cover from it.
 - **Rename an album's folder** from the queue, with a name suggested from its tags.
 - Find music by **search** — albums and tracks page independently with **Show more** — or by pasting a **Qobuz URL / ID** (album, track, playlist).
 - **Open an album** from search to see its track list and add only the tracks you pick.
@@ -32,16 +34,22 @@ quality, cover art, file organization, and tags.
 
 ## Screenshots
 
-| Search | Album | Queue | Tag editor | Settings |
-| --- | --- | --- | --- | --- |
-| ![Search screen — album results with cover art and Hi-Res badges](docs/screenshots/search.png) | ![Album screen — track list with selection and durations](docs/screenshots/album.png) | ![Queue screen — a finished album with Open folder, Rename folder and Edit tags](docs/screenshots/queue.png) | ![Tag editor — album fields, cover, and per-track fields with unsaved changes](docs/screenshots/tag-editor.png) | ![Settings screen — path and rename templates, quality, cover size, and notifications](docs/screenshots/settings.png) |
+| Search | Album | Queue |
+| --- | --- | --- |
+| ![Search screen — album results with cover art and Hi-Res badges](docs/screenshots/search.png) | ![Album screen — track list with selection and durations](docs/screenshots/album.png) | ![Queue screen — a finished album with Open folder, Rename folder and Edit tags](docs/screenshots/queue.png) |
+
+| Tag editor | Fill from MusicBrainz | Settings |
+| --- | --- | --- |
+| ![Tag editor — an album still in the queue above it, album fields, cover, and unsaved changes](docs/screenshots/tag-editor.png) | ![MusicBrainz release picker — releases ranked by match percentage, each with a Use button](docs/screenshots/musicbrainz.png) | ![Settings screen — path and rename templates, quality, cover size, and notifications](docs/screenshots/settings.png) |
 
 *Search for albums and tracks, or paste a Qobuz URL. Open an album to pick the
 tracks you want. The queue groups downloads by album, with per-track status,
 retry for failed tracks, and actions to open, rename or retag each finished
 album. The tag editor shows the files' tags, album fields once and each track's
-own. Settings hold your credentials, path and rename templates, quality, cover
-size, and notifications.*
+own, with the albums still in the queue listed above it. Fill from MusicBrainz
+lists the matching releases, ranked by how well each fits your files. Settings
+hold your credentials, path and rename templates, quality, cover size, and
+notifications.*
 
 ## Installation
 
@@ -124,7 +132,10 @@ written into the file before it appears at its destination, and a track already
 on disk is left untouched rather than re-tagged.
 
 **Edit tags** on a finished album group opens an editor in place of the queue
-list, showing what the files hold now:
+list, showing what the files hold now. Albums still queued or downloading are
+listed above it, each with its own progress bar, so you can keep an eye on them
+while you edit. If the album you are editing is added to the queue again, your
+edits are kept and **Save** waits until its download ends.
 
 - **Album fields** (album, album artist, date, genre, label, copyright, disc
   total, compilation) appear once. Where tracks disagree, the field shows
@@ -140,13 +151,14 @@ list, showing what the files hold now:
 - **Reset to Qobuz** refills the fields from the album's Qobuz metadata.
 - **Fill from MusicBrainz** finds the album on [MusicBrainz](https://musicbrainz.org)
   by its barcode, by its tracks' ISRCs, or by its title among releases with the
-  same number of tracks and discs, and fills the fields from it: the
-  original release date, MusicBrainz's most-voted genre, composers and more.
-  Explicit, ISRC, copyright and comment are left alone. When several releases
-  match, the track list is replaced by a list of them, ranked by a **match**
-  percentage that measures how well each fits your files; pick one with
-  **Use**. Tick **Include cover** first to also take the release's front cover
-  from the Cover Art Archive. **Cancel lookup** stops it at any step without
+  same number of tracks and discs and a matching artist, and fills the fields
+  from it: the original release date, MusicBrainz's most-voted genre, composers
+  and more. Explicit, ISRC, copyright and comment are left alone. The track list
+  is replaced by the releases found, ranked by a **match** percentage that
+  measures how well each fits your files (ISRCs, track count, title, artist,
+  label, status); pick one with **Use**. A single release is filled straight
+  away only when it matches at 80 % or more. Tick **Include cover** first to
+  also take the release's front cover from the Cover Art Archive. **Cancel lookup** stops it at any step without
   changing anything. If fewer than half your tracks match the chosen release,
   only those tracks are filled; the album fields and cover are left alone. The
   app only contacts MusicBrainz when you ask, and sends only the album's

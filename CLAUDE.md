@@ -24,6 +24,11 @@ No justfile/Makefile — invoke cargo directly. `Cargo.lock` is committed, so a
 dependency change belongs in the same commit as the `Cargo.toml` edit. GitHub
 Actions runs `.github/workflows/ci.yml` on pushes and PRs to `main`.
 
+Logging: `RUST_LOG` overrides the filter in `main.rs`; debug builds also log
+the MusicBrainz lookup's steps. Release builds compile every `debug!`/`trace!`
+out (`tracing`'s `release_max_level_info` in the root `Cargo.toml`), so
+`RUST_LOG=debug` shows nothing more there.
+
 Packaging (from `crates/qobuz-gui/`, config in `[package.metadata.packager]` in
 `crates/qobuz-gui/Cargo.toml` — a standalone `Packager.toml` is NOT auto-detected
 in this workspace):
